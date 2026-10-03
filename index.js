@@ -1,4 +1,5 @@
 const http = require('http');
+const path = require('path');
 
 const {
     Client,
@@ -9,7 +10,11 @@ const {
 } = require('discord.js');
 
 const {
-    joinVoiceChannel
+    joinVoiceChannel,
+    createAudioPlayer,
+    createAudioResource,
+    AudioPlayerStatus,
+    NoSubscriberBehavior
 } = require('@discordjs/voice');
 
 const client = new Client({
@@ -22,6 +27,7 @@ const client = new Client({
 });
 
 const chatTimers = new Map();
+const musicPlayers = new Map();
 
 /* =========================
    Render Web Service
@@ -54,6 +60,14 @@ client.once('ready', async () => {
         {
             name: 'setup_chat',
             description: 'تذكير بالتفاعل كل 5 ساعات'
+        },
+        {
+            name: 'play_music',
+            description: 'تشغيل الأغنية'
+        },
+        {
+            name: 'dis_music',
+            description: 'إيقاف الأغنية'
         }
     ];
 
@@ -78,7 +92,7 @@ client.once('ready', async () => {
 });
 
 /* =========================
-   Join Voice Function
+   Join Voice
 ========================= */
 
 function joinUserVoice(member) {
@@ -151,7 +165,10 @@ client.on('messageCreate', async message => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    /* /join */
+    /* =========================
+       /join
+    ========================= */
+
     if (interaction.commandName === 'join') {
         const member = interaction.member;
 
@@ -186,7 +203,146 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    /* /setup_chat */
+    /* =========================
+       /play_music
+    ========================= */
+
+    if (interaction.commandName === 'play_music') {
+        const member = interaction.member;
+
+        if (
+            !member ||
+            !member.voice ||
+            !member.voice.channel
+        ) {
+            await interaction.reply(
+                'ادخل الروم الصوتي أولاً 🎙️'
+            );
+            return;
+        }
+
+        try {
+            const channel = member.voice.channel;
+
+            const connection = joinVoiceChannel({
+                channelId: channel.id,
+                guildId: channel.guild.id,
+                adapterCreator:
+                    channel.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false
+            });
+
+            let player = musicPlayers.get(
+                interaction.guildId
+            );
+
+            if (!player) {
+                player = createAudioPlayer({
+                    behaviors: {
+                        noSubscriber:
+                            NoSubscriberBehavior.Play
+                    }
+                });
+
+                musicPlayers.set(
+                    interaction.guildId,
+                    player
+                );
+            }
+
+            const songPath = path.join(
+                __dirname,
+                'song.mp3'
+            );
+
+            const resource =
+                createAudioResource(songPath);
+
+            player.play(resource);
+
+            connection.subscribe(player);
+
+            await interaction.reply(
+                '🎵 تم تشغيل الأغنية!'
+            );
+
+            player.on(
+                AudioPlayerStatus.Idle,
+                () => {
+                    console.log(
+                        'Music finished.'
+                    );
+                }
+            );
+
+        } catch (error) {
+            console.error(
+                'Music error:',
+                error
+            );
+
+            await interaction.reply(
+                '❌ ما قدرت أشغل الأغنية.'
+            );
+        }
+
+        return;
+    }
+
+    /* =========================
+       /dis_music
+    ========================= */
+
+    if (interaction.commandName === 'dis_music') {
+        const player = musicPlayers.get(
+            interaction.guildId
+        );
+
+        if (!player) {
+            await interaction.reply(
+                'ما فيه أغنية شغالة حالياً.'
+            );
+            return;
+        }
+
+        try {
+            player.stop();
+
+            musicPlayers.delete(
+                interaction.guildId
+            );
+
+            const connection =
+                interaction.guild.voiceStates.cache
+                    .get(client.user.id);
+
+            if (connection) {
+                connection.disconnect();
+            }
+
+            await interaction.reply(
+                '⏹️ تم إيقاف الأغنية.'
+            );
+
+        } catch (error) {
+            console.error(
+                'Stop music error:',
+                error
+            );
+
+            await interaction.reply(
+                '❌ ما قدرت أوقف الأغنية.'
+            );
+        }
+
+        return;
+    }
+
+    /* =========================
+       /setup_chat
+    ========================= */
+
     if (interaction.commandName === 'setup_chat') {
         if (
             !interaction.member.permissions.has(
@@ -202,7 +358,8 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        const channelId = interaction.channelId;
+        const channelId =
+            interaction.channelId;
 
         if (chatTimers.has(channelId)) {
             clearInterval(
