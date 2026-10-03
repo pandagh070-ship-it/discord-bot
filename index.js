@@ -1,3 +1,5 @@
+const http = require('http');
+
 const {
     Client,
     GatewayIntentBits,
@@ -5,6 +7,10 @@ const {
     Routes,
     PermissionsBitField
 } = require('discord.js');
+
+const {
+    joinVoiceChannel
+} = require('@discordjs/voice');
 
 const client = new Client({
     intents: [
@@ -15,20 +21,29 @@ const client = new Client({
     ]
 });
 
-
-// ==============================
-// الإعدادات
-// ==============================
-
 const chatTimers = new Map();
 
+/* =========================
+   Render Web Service
+========================= */
 
-// ==============================
-// عند تشغيل البوت
-// ==============================
+const PORT = process.env.PORT || 10000;
+
+http.createServer((req, res) => {
+    res.writeHead(200, {
+        'Content-Type': 'text/plain'
+    });
+
+    res.end('Discord bot is online.');
+}).listen(PORT, '0.0.0.0', () => {
+    console.log(`HTTP server listening on port ${PORT}`);
+});
+
+/* =========================
+   Bot Ready
+========================= */
 
 client.once('ready', async () => {
-
     console.log(`Bot is online as ${client.user.tag}`);
 
     const commands = [
@@ -46,7 +61,6 @@ client.once('ready', async () => {
         .setToken(process.env.DISCORD_TOKEN);
 
     try {
-
         await rest.put(
             Routes.applicationCommands(client.user.id),
             {
@@ -55,64 +69,69 @@ client.once('ready', async () => {
         );
 
         console.log('Global slash commands registered.');
-
     } catch (error) {
-
         console.error(
             'Slash command registration error:',
             error
         );
-
     }
 });
 
+/* =========================
+   Join Voice Function
+========================= */
 
-// ==============================
-// الرسائل العادية
-// ==============================
-
-client.on('messageCreate', async message => {
-
-    if (message.author.bot) return;
-
-
-    // هلا
-    if (message.content === 'هلا') {
-
-        await message.reply(
-            'هلا والله 👋'
-        );
-
+function joinUserVoice(member) {
+    if (
+        !member ||
+        !member.voice ||
+        !member.voice.channel
+    ) {
+        return null;
     }
 
+    const channel = member.voice.channel;
 
-    // !join
+    return joinVoiceChannel({
+        channelId: channel.id,
+        guildId: channel.guild.id,
+        adapterCreator: channel.guild.voiceAdapterCreator,
+        selfDeaf: false,
+        selfMute: false
+    });
+}
+
+/* =========================
+   Normal Messages
+========================= */
+
+client.on('messageCreate', async message => {
+    if (message.author.bot) return;
+
+    if (message.content === 'هلا') {
+        await message.reply('هلا والله 👋');
+        return;
+    }
+
     if (message.content === '!join') {
-
         if (
             !message.member ||
             !message.member.voice ||
             !message.member.voice.channel
         ) {
-
             await message.reply(
                 'ادخل الروم الصوتي أولاً 🎙️'
             );
-
             return;
         }
 
-
         try {
-
-            await message.member.voice.channel.join();
+            joinUserVoice(message.member);
 
             await message.reply(
                 'دخلت المكالمة 🎙️'
             );
-
         } catch (error) {
-
             console.error(
                 'Voice error:',
                 error
@@ -121,29 +140,19 @@ client.on('messageCreate', async message => {
             await message.reply(
                 'ما قدرت أدخل الروم الصوتي.'
             );
-
         }
-
     }
-
 });
 
-
-// ==============================
-// Slash Commands
-// ==============================
+/* =========================
+   Slash Commands
+========================= */
 
 client.on('interactionCreate', async interaction => {
-
     if (!interaction.isChatInputCommand()) return;
 
-
-    // ==============================
-    // /join
-    // ==============================
-
+    /* /join */
     if (interaction.commandName === 'join') {
-
         const member = interaction.member;
 
         if (
@@ -151,25 +160,19 @@ client.on('interactionCreate', async interaction => {
             !member.voice ||
             !member.voice.channel
         ) {
-
             await interaction.reply(
                 'ادخل الروم الصوتي أولاً 🎙️'
             );
-
             return;
         }
 
-
         try {
-
-            await member.voice.channel.join();
+            joinUserVoice(member);
 
             await interaction.reply(
                 'دخلت المكالمة 🎙️'
             );
-
         } catch (error) {
-
             console.error(
                 'Voice error:',
                 error
@@ -178,31 +181,18 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply(
                 'ما قدرت أدخل الروم الصوتي.'
             );
-
         }
 
+        return;
     }
 
-
-    // ==============================
-    // /setup_chat
-    // ==============================
-
-    if (
-        interaction.commandName ===
-        'setup_chat'
-    ) {
-
-        const channelId =
-            interaction.channelId;
-
-
+    /* /setup_chat */
+    if (interaction.commandName === 'setup_chat') {
         if (
             !interaction.member.permissions.has(
                 PermissionsBitField.Flags.ManageGuild
             )
         ) {
-
             await interaction.reply({
                 content:
                     'هذا الأمر يحتاج صلاحية Manage Server.',
@@ -212,19 +202,16 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
+        const channelId = interaction.channelId;
 
         if (chatTimers.has(channelId)) {
-
             clearInterval(
                 chatTimers.get(channelId)
             );
-
         }
-
 
         const timer = setInterval(
             async () => {
-
                 const channel =
                     client.channels.cache.get(
                         channelId
@@ -233,57 +220,44 @@ client.on('interactionCreate', async interaction => {
                 if (!channel) return;
 
                 try {
-
                     await channel.send(
                         '@everyone تفاعلو 📢'
                     );
-
                 } catch (error) {
-
                     console.error(
                         'Message error:',
                         error
                     );
-
                 }
-
             },
             5 * 60 * 60 * 1000
         );
-
 
         chatTimers.set(
             channelId,
             timer
         );
 
-
         await interaction.reply(
             'تم تشغيل التذكير 📢 كل 5 ساعات.'
         );
-
     }
-
 });
 
-
-// ==============================
-// أخطاء الاتصال
-// ==============================
+/* =========================
+   Errors
+========================= */
 
 client.on('error', error => {
-
     console.error(
         'Discord client error:',
         error
     );
-
 });
 
-
-// ==============================
-// تشغيل البوت
-// ==============================
+/* =========================
+   Login
+========================= */
 
 client.login(
     process.env.DISCORD_TOKEN
