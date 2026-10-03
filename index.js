@@ -1,5 +1,6 @@
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 const {
@@ -159,11 +160,16 @@ function stopMusic(guildId) {
 function playMusic(member) {
     const channel = member.voice.channel;
 
-    if (!channel) {
-        throw new Error('USER_NOT_IN_VOICE');
-    }
+    if (!channel) throw new Error('USER_NOT_IN_VOICE');
 
-    // Stop any previous song in this server.
+    const songPath = path.join(__dirname, SONG_FILE);
+
+    console.log('Song path:', songPath);
+    console.log('FFmpeg path:', ffmpegPath);
+
+    if (!ffmpegPath) throw new Error('FFMPEG_NOT_FOUND');
+    if (!fs.existsSync(songPath)) throw new Error('SONG_FILE_NOT_FOUND');
+
     stopMusic(channel.guild.id);
 
     const connection = joinVoiceChannel({
@@ -180,88 +186,51 @@ function playMusic(member) {
         }
     });
 
-    const songPath = path.join(
-        __dirname,
-        SONG_FILE
-    );
-
-    // Convert M4A to raw PCM for Discord.
     const ffmpeg = spawn(ffmpegPath, [
         '-hide_banner',
-        '-loglevel',
-        'error',
-        '-i',
-        songPath,
-        '-f',
-        's16le',
-        '-ar',
-        '48000',
-        '-ac',
-        '2',
+        '-loglevel', 'error',
+        '-i', songPath,
+        '-vn',
+        '-ac', '2',
+        '-ar', '48000',
+        '-c:a', 'libopus',
+        '-b:a', '128k',
+        '-f', 'ogg',
         'pipe:1'
     ]);
 
     ffmpeg.stderr.on('data', data => {
-        console.error(
-            'FFmpeg:',
-            data.toString()
-        );
+        console.error('FFmpeg:', data.toString());
     });
 
     ffmpeg.on('error', error => {
-        console.error(
-            'FFmpeg process error:',
-            error
-        );
-    });
-
-    const resource = createAudioResource(
-        ffmpeg.stdout,
-        {
-            inputType: StreamType.Raw,
-            inlineVolume: false
-        }
-    );
-
-    player.play(resource);
-    connection.subscribe(player);
-
-    const state = {
-        connection,
-        player,
-        ffmpeg
-    };
-
-    musicStates.set(
-        channel.guild.id,
-        state
-    );
-
-    player.once(
-        AudioPlayerStatus.Idle,
-        () => {
-            console.log('Music finished.');
-
-            if (musicStates.get(channel.guild.id) === state) {
-                try {
-                    connection.destroy();
-                } catch (e) {}
-
-                musicStates.delete(
-                    channel.guild.id
-                );
-            }
-        }
-    );
-
-    player.on('error', error => {
-        console.error(
-            'Audio player error:',
-            error
-        );
-
+        console.error('FFmpeg process error:', error);
         stopMusic(channel.guild.id);
     });
+
+    const resource = createAudioResource(ffmpeg.stdout, {
+        inputType: StreamType.OggOpus
+    });
+
+    const state = { connection, player, ffmpeg };
+    musicStates.set(channel.guild.id, state);
+
+    player.on('error', error => {
+        console.error('Audio player error:', error);
+        stopMusic(channel.guild.id);
+    });
+
+    player.once(AudioPlayerStatus.Idle, () => {
+        console.log('Music finished.');
+        if (musicStates.get(channel.guild.id) === state) {
+            try { ffmpeg.kill(); } catch (e) {}
+            try { connection.destroy(); } catch (e) {}
+            musicStates.delete(channel.guild.id);
+        }
+    });
+
+    connection.subscribe(player);
+    player.play(resource);
 }
 
 /* =========================
@@ -384,7 +353,7 @@ client.on('interactionCreate', async interaction => {
                 );
             } else {
                 await interaction.editReply(
-                    '❌ ما قدرت أشغل الأغنية. تأكد أن ملف الأغنية موجود.'
+                    '❌ ما قدرت أشغل الأغنية. راجع Logs في Render.'
                 );
             }
         }
