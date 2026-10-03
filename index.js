@@ -35,7 +35,7 @@ const client = new Client({
 
 const chatTimers = new Map();
 const musicStates = new Map();
-const memberSetupMessages = new Map();
+const memberSetupMessages = new Map(); // guildId -> { channelId, messageId }
 const dmSubscribers = new Map();
 
 const SONG_FILE =
@@ -61,8 +61,72 @@ http.createServer((req, res) => {
    Slash Commands
 ========================= */
 
+async function updateActiveMembersMessage(guild) {
+    const setup = memberSetupMessages.get(guild.id);
+    if (!setup) return;
+
+    const channel = guild.channels.cache.get(setup.channelId);
+    if (!channel || !channel.isTextBased()) return;
+
+    try {
+        await guild.members.fetch();
+        const activeCount = guild.members.cache.filter(member =>
+            !member.user.bot &&
+            member.presence &&
+            ['online', 'idle', 'dnd'].includes(member.presence.status)
+        ).size;
+
+        const message = await channel.messages.fetch(setup.messageId);
+        await message.edit(`🟢 **الأعضاء النشطين: ${activeCount}**`);
+    } catch (error) {
+        console.error('Active member counter update error:', error);
+    }
+}
+
+async function restoreActiveMemberMessages() {
+    for (const guild of client.guilds.cache.values()) {
+        try {
+            const channels = guild.channels.cache.filter(channel =>
+                channel.isTextBased() &&
+                channel.messages &&
+                channel.viewable &&
+                channel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.ViewChannel) &&
+                channel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.ReadMessageHistory)
+            );
+
+            for (const channel of channels.values()) {
+                try {
+                    const messages = await channel.messages.fetch({ limit: 50 });
+                    const statusMessage = messages.find(message =>
+                        message.author.id === client.user.id &&
+                        message.content.startsWith('🟢 **الأعضاء النشطين:')
+                    );
+
+                    if (statusMessage) {
+                        memberSetupMessages.set(guild.id, {
+                            channelId: channel.id,
+                            messageId: statusMessage.id
+                        });
+                        console.log(`Restored active member counter for guild ${guild.id}.`);
+                        break;
+                    }
+                } catch (error) {
+                    // Ignore channels the bot cannot read.
+                }
+            }
+        } catch (error) {
+            console.error('Restore active member counter error:', error);
+        }
+    }
+
+    for (const guild of client.guilds.cache.values()) {
+        await updateActiveMembersMessage(guild);
+    }
+}
+
 client.once('ready', async () => {
     console.log(`Bot is online as ${client.user.tag}`);
+    await restoreActiveMemberMessages();
 
     const commands = [
         {
@@ -551,22 +615,36 @@ client.on('interactionCreate', async interaction => {
             ).size;
 
             const channel = interaction.channel;
-            const oldMessageId = memberSetupMessages.get(interaction.guildId);
+            const setup = memberSetupMessages.get(interaction.guildId);
 
-            if (oldMessageId) {
+            let statusMessage = null;
+
+            if (setup) {
                 try {
-                    const oldMessage = await channel.messages.fetch(oldMessageId);
-                    await oldMessage.delete();
-                } catch (e) {}
+                    const oldChannel = interaction.guild.channels.cache.get(setup.channelId);
+                    if (oldChannel && oldChannel.isTextBased()) {
+                        statusMessage = await oldChannel.messages.fetch(setup.messageId);
+                        await statusMessage.edit(
+                            `🟢 **الأعضاء النشطين: ${activeCount}**`
+                        );
+                    }
+                } catch (e) {
+                    statusMessage = null;
+                }
             }
 
-            const statusMessage = await channel.send(
-                `🟢 **الأعضاء النشطين: ${activeCount}**`
-            );
+            if (!statusMessage) {
+                statusMessage = await channel.send(
+                    `🟢 **الأعضاء النشطين: ${activeCount}**`
+                );
+            }
 
             memberSetupMessages.set(
                 interaction.guildId,
-                statusMessage.id
+                {
+                    channelId: statusMessage.channel.id,
+                    messageId: statusMessage.id
+                }
             );
 
             await interaction.editReply(
@@ -644,33 +722,19 @@ client.on('interactionCreate', async interaction => {
 
 client.on('presenceUpdate', async (oldPresence, newPresence) => {
     const guild = newPresence.guild;
-
     if (!guild || !memberSetupMessages.has(guild.id)) return;
+    await updateActiveMembersMessage(guild);
+});
 
-    const channel = guild.channels.cache.find(ch =>
-        ch.isTextBased() &&
-        ch.messages &&
-        ch.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.SendMessages)
-    );
+client.on('guildMemberAdd', async member => {
+    if (memberSetupMessages.has(member.guild.id)) {
+        await updateActiveMembersMessage(member.guild);
+    }
+});
 
-    if (!channel) return;
-
-    try {
-        const message = await channel.messages.fetch(
-            memberSetupMessages.get(guild.id)
-        );
-
-        const activeCount = guild.members.cache.filter(member =>
-            !member.user.bot &&
-            member.presence &&
-            ['online', 'idle', 'dnd'].includes(member.presence.status)
-        ).size;
-
-        await message.edit(
-            `🟢 **الأعضاء النشطين: ${activeCount}**`
-        );
-    } catch (error) {
-        console.error('Active member counter update error:', error);
+client.on('guildMemberRemove', async member => {
+    if (memberSetupMessages.has(member.guild.id)) {
+        await updateActiveMembersMessage(member.guild);
     }
 });
 
