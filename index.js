@@ -689,6 +689,18 @@ client.on('error', error => {
    Login
 ========================= */
 
-client.login(
-    process.env.DISCORD_TOKEN
+const discordToken = process.env.DISCORD_TOKEN?.trim();
+
+if (!discordToken) {
+    console.error('DISCORD_TOKEN is missing or empty.');
+    process.exit(1);
+}
+
+console.log(
+    `DISCORD_TOKEN loaded successfully (length: ${discordToken.length})`
 );
+
+client.login(discordToken).catch(error => {
+    console.error('Discord login failed:', error);
+    process.exit(1);
+});
