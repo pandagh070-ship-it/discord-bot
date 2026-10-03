@@ -25,60 +25,46 @@ client.on('message', async message => {
         } catch (error) {
             console.log(error);
             message.reply('حدث خطأ أثناء دخول المكالمة.');
-        }
-    }
-});
-// ==============================
+    // ==============================
 // Slash Command: /setup_chat
 // ==============================
 
 const chatTimers = new Map();
 
-client.on('ready', async () => {
-    console.log('Registering slash commands...');
+client.ws.on('INTERACTION_CREATE', async interaction => {
 
-    for (const guild of client.guilds.cache.values()) {
-        try {
-            await client.api
-                .applications(client.user.id)
-                .guilds(guild.id)
-                .commands.post({
-                    data: {
-                        name: 'setup_chat',
-                        description: 'تشغيل تذكير التفاعل كل 5 ساعات'
-                    }
-                });
+    if (!interaction.data) return;
+    if (interaction.data.name !== 'setup_chat') return;
 
-            console.log('Slash command registered in ' + guild.name);
-        } catch (error) {
-            console.log('Slash command error:', error);
+    const channelId = interaction.channel_id;
+
+    // رد فوري على الأمر
+    await client.api.interactions(interaction.id, interaction.token).callback.post({
+        data: {
+            type: 4,
+            data: {
+                content: 'تم تشغيل التذكير 📢 كل 5 ساعات.'
+            }
         }
+    });
+
+    // إلغاء مؤقت قديم
+    if (chatTimers.has(channelId)) {
+        clearInterval(chatTimers.get(channelId));
     }
-});
 
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand()) return;
+    // كل 5 ساعات
+    const timer = setInterval(() => {
 
-    if (interaction.commandName === 'setup_chat') {
+        const channel = client.channels.get(channelId);
 
-        const channel = interaction.channel;
-
-        await interaction.reply('تم تشغيل التذكير 📢 كل 5 ساعات.');
-
-        // إلغاء مؤقت قديم لنفس الروم
-        if (chatTimers.has(channel.id)) {
-            clearInterval(chatTimers.get(channel.id));
-        }
-
-        // إرسال كل 5 ساعات
-        const timer = setInterval(() => {
-
+        if (channel) {
             channel.send('@everyone تفاعلو 📢');
+        }
 
-        }, 5 * 60 * 60 * 1000);
+    }, 5 * 60 * 60 * 1000);
 
-        chatTimers.set(channel.id, timer);
-    }
+    chatTimers.set(channelId, timer);
 });
-
+            
 client.login(process.env.DISCORD_TOKEN);
