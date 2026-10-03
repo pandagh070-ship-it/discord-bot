@@ -167,6 +167,16 @@ client.once('ready', async () => {
     const commands = [
         { name: 'join', description: 'دخول الروم الصوتي' },
         { name: 'setup_chat', description: 'تذكير بالتفاعل كل 5 ساعات' },
+        { name: 'stop_chat', description: 'إيقاف تذكير التفاعل' },
+        {
+            name: 'chat_lock',
+            description: 'قفل روم الدردشة الحالي',
+            options: [{ name: 'reason', description: 'سبب القفل', type: 3, required: false }]
+        },
+        {
+            name: 'chat_unlock',
+            description: 'فتح روم الدردشة الحالي'
+        },
         { name: 'play_music', description: 'تشغيل الأغنية' },
         { name: 'dis_music', description: 'إيقاف الأغنية والخروج من الروم' },
         {
@@ -215,7 +225,34 @@ client.once('ready', async () => {
             ]
         },
         { name: 'ping', description: 'عرض Ping البوت' },
-        { name: 'log', description: 'عرض آخر سجلات البوت' }
+        { name: 'log', description: 'عرض آخر سجلات البوت' },
+        { name: 'invite', description: 'رابط إضافة البوت لسيرفر آخر' },
+        { name: 'serverinfo', description: 'معلومات عن السيرفر' },
+        {
+            name: 'userinfo',
+            description: 'معلومات عن عضو',
+            options: [{ name: 'user', description: 'العضو', type: 6, required: false }]
+        },
+        {
+            name: 'kick',
+            description: 'طرد عضو من السيرفر',
+            options: [{ name: 'user', description: 'العضو', type: 6, required: true }]
+        },
+        {
+            name: 'clear',
+            description: 'حذف رسائل من الروم',
+            options: [{ name: 'amount', description: 'عدد الرسائل 1-100', type: 4, required: true, min_value: 1, max_value: 100 }]
+        },
+        {
+            name: 'slowmode',
+            description: 'تحديد وقت بين الرسائل',
+            options: [{ name: 'seconds', description: 'الثواني 0-21600', type: 4, required: true, min_value: 0, max_value: 21600 }]
+        },
+        {
+            name: 'avatar',
+            description: 'عرض صورة عضو',
+            options: [{ name: 'user', description: 'العضو', type: 6, required: false }]
+        }
     ];
 
     const rest = new REST({ version: '10' })
@@ -380,6 +417,116 @@ client.on('messageCreate', async message => {
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
+
+    /* /invite */
+    if (interaction.commandName === 'invite') {
+        const inviteUrl =
+            `https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=8`;
+
+        await interaction.reply({
+            content: `🤖 **إضافة البوت لسيرفر آخر:**\n${inviteUrl}\n\nيجب أن تملك صلاحية **Manage Server** في السيرفر الذي تريد إضافته إليه.`,
+            ephemeral: true
+        });
+        return;
+    }
+
+    /* /serverinfo */
+    if (interaction.commandName === 'serverinfo') {
+        const guild = interaction.guild;
+        await interaction.reply(
+            `🏠 **${guild.name}**\n👥 الأعضاء: **${guild.memberCount}**\n📝 الرومات: **${guild.channels.cache.size}**\n🎭 الرتب: **${guild.roles.cache.size}**\n👑 المالك: <@${guild.ownerId}>`
+        );
+        return;
+    }
+
+    /* /userinfo */
+    if (interaction.commandName === 'userinfo') {
+        const member = interaction.options.getMember('user') || interaction.member;
+        await interaction.reply(
+            `👤 **${member.user.tag}**\n🆔 ${member.id}\n📅 دخل السيرفر: <t:${Math.floor(member.joinedTimestamp / 1000)}:F>\n🎭 الرتبة الأعلى: **${member.roles.highest.name}**`
+        );
+        return;
+    }
+
+    /* /avatar */
+    if (interaction.commandName === 'avatar') {
+        const user = interaction.options.getUser('user') || interaction.user;
+        await interaction.reply(user.displayAvatarURL({ size: 1024 }));
+        return;
+    }
+
+    /* /kick */
+    if (interaction.commandName === 'kick') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Kick Members.', ephemeral: true });
+            return;
+        }
+
+        const member = interaction.options.getMember('user');
+        if (!member) {
+            await interaction.reply({ content: '❌ ما قدرت أجد هذا العضو.', ephemeral: true });
+            return;
+        }
+
+        if (member.id === interaction.user.id) {
+            await interaction.reply({ content: '❌ لا يمكنك طرد نفسك.', ephemeral: true });
+            return;
+        }
+
+        try {
+            await member.kick(`Kicked by ${interaction.user.tag} using /kick`);
+            await interaction.reply(`👢 تم طرد **${member.user.tag}** من السيرفر.`);
+            addBotLog(`/kick used by ${interaction.user.tag} on ${member.user.tag}`);
+        } catch (error) {
+            addBotLog(`Kick error: ${error.message}`);
+            await interaction.reply({ content: '❌ ما قدرت أطرده. تأكد من رتبة البوت وصلاحياته.', ephemeral: true });
+        }
+        return;
+    }
+
+    /* /clear */
+    if (interaction.commandName === 'clear') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Messages.', ephemeral: true });
+            return;
+        }
+
+        const amount = interaction.options.getInteger('amount', true);
+        await interaction.deferReply({ ephemeral: true });
+
+        try {
+            const deleted = await interaction.channel.bulkDelete(amount, true);
+            await interaction.editReply(`🧹 تم حذف **${deleted.size}** رسالة.`);
+            addBotLog(`/clear used by ${interaction.user.tag}: ${deleted.size}`);
+        } catch (error) {
+            addBotLog(`Clear error: ${error.message}`);
+            await interaction.editReply('❌ ما قدرت أحذف الرسائل. تأكد من صلاحيات البوت.');
+        }
+        return;
+    }
+
+    /* /slowmode */
+    if (interaction.commandName === 'slowmode') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', ephemeral: true });
+            return;
+        }
+
+        const seconds = interaction.options.getInteger('seconds', true);
+        try {
+            await interaction.channel.setRateLimitPerUser(seconds, `Changed by ${interaction.user.tag}`);
+            await interaction.reply(
+                seconds === 0
+                    ? '🚀 تم إلغاء الـ Slowmode.'
+                    : `🐢 تم تفعيل Slowmode: **${seconds} ثانية** بين الرسائل.`
+            );
+            addBotLog(`/slowmode used by ${interaction.user.tag}: ${seconds}s`);
+        } catch (error) {
+            addBotLog(`Slowmode error: ${error.message}`);
+            await interaction.reply({ content: '❌ ما قدرت أغير الـ Slowmode.', ephemeral: true });
+        }
+        return;
+    }
 
     /* /ping */
     if (interaction.commandName === 'ping') {
@@ -721,6 +868,69 @@ client.on('interactionCreate', async interaction => {
             addBotLog(`Setup members error: ${error.message}`);
             await interaction.editReply('❌ ما قدرت أجهز عداد الأعضاء. تأكد من Privileged Intents.');
         }
+        return;
+    }
+
+    /* /chat_lock */
+    if (interaction.commandName === 'chat_lock') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', ephemeral: true });
+            return;
+        }
+
+        const reason = interaction.options.getString('reason') || 'تم قفل الدردشة من الإدارة.';
+        try {
+            await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+                SendMessages: false
+            }, { reason });
+
+            await interaction.reply(`🔒 تم قفل الدردشة في **#${interaction.channel.name}**.\n📌 السبب: ${reason}`);
+            addBotLog(`/chat_lock used by ${interaction.user.tag} in ${interaction.guild.name}`);
+        } catch (error) {
+            addBotLog(`Chat lock error: ${error.message}`);
+            await interaction.reply({ content: '❌ ما قدرت أقفل الروم. تأكد من صلاحيات البوت.', ephemeral: true });
+        }
+        return;
+    }
+
+    /* /chat_unlock */
+    if (interaction.commandName === 'chat_unlock') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', ephemeral: true });
+            return;
+        }
+
+        try {
+            await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+                SendMessages: null
+            }, { reason: `Unlocked by ${interaction.user.tag}` });
+
+            await interaction.reply('🔓 تم فتح الدردشة للجميع.');
+            addBotLog(`/chat_unlock used by ${interaction.user.tag} in ${interaction.guild.name}`);
+        } catch (error) {
+            addBotLog(`Chat unlock error: ${error.message}`);
+            await interaction.reply({ content: '❌ ما قدرت أفتح الروم. تأكد من صلاحيات البوت.', ephemeral: true });
+        }
+        return;
+    }
+
+    /* /stop_chat */
+    if (interaction.commandName === 'stop_chat') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Server.', ephemeral: true });
+            return;
+        }
+
+        const timer = chatTimers.get(interaction.channelId);
+        if (!timer) {
+            await interaction.reply({ content: 'ℹ️ ما فيه تذكير شغال في هذا الروم.', ephemeral: true });
+            return;
+        }
+
+        clearInterval(timer);
+        chatTimers.delete(interaction.channelId);
+        await interaction.reply('🛑 تم إيقاف تذكير التفاعل في هذا الروم.');
+        addBotLog(`/stop_chat used by ${interaction.user.tag}`);
         return;
     }
 
