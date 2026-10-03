@@ -27,12 +27,15 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildVoiceStates
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildPresences
     ]
 });
 
 const chatTimers = new Map();
 const musicStates = new Map();
+const memberSetupMessages = new Map();
 
 const SONG_FILE =
     'MURDER DRONES - BANG BANG BANG - Chainsaw Man Song - AMV_EDIT(M4A_128K).m4a';
@@ -76,6 +79,22 @@ client.once('ready', async () => {
         {
             name: 'dis_music',
             description: 'إيقاف الأغنية والخروج من الروم'
+        },
+        {
+            name: 'ban',
+            description: 'حظر عضو من السيرفر',
+            options: [
+                {
+                    name: 'user',
+                    description: 'الشخص الذي تريد حظره',
+                    type: 6,
+                    required: true
+                }
+            ]
+        },
+        {
+            name: 'setup_members',
+            description: 'عرض عدد الأعضاء النشطين وتحديثه تلقائياً'
         }
     ];
 
@@ -380,6 +399,98 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
+    /* /ban */
+    if (interaction.commandName === 'ban') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+            await interaction.reply({
+                content: '❌ تحتاج صلاحية Ban Members لاستخدام هذا الأمر.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        const user = interaction.options.getUser('user', true);
+
+        if (user.id === interaction.user.id) {
+            await interaction.reply({
+                content: '❌ لا يمكنك حظر نفسك.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        try {
+            await interaction.guild.members.ban(user.id, {
+                reason: `Banned by ${interaction.user.tag} using /ban`
+            });
+
+            await interaction.reply(`🔨 تم حظر **${user.tag}** من السيرفر.`);
+        } catch (error) {
+            console.error('Ban error:', error);
+
+            await interaction.reply({
+                content: '❌ ما قدرت أحظر هذا الشخص. تأكد أن البوت لديه صلاحية Ban Members وأن رتبته أعلى من رتبة الشخص.',
+                ephemeral: true
+            });
+        }
+
+        return;
+    }
+
+    /* /setup_members */
+    if (interaction.commandName === 'setup_members') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+            await interaction.reply({
+                content: '❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        try {
+            await interaction.guild.members.fetch();
+
+            const activeCount = interaction.guild.members.cache.filter(member =>
+                !member.user.bot &&
+                member.presence &&
+                ['online', 'idle', 'dnd'].includes(member.presence.status)
+            ).size;
+
+            const channel = interaction.channel;
+            const oldMessageId = memberSetupMessages.get(interaction.guildId);
+
+            if (oldMessageId) {
+                try {
+                    const oldMessage = await channel.messages.fetch(oldMessageId);
+                    await oldMessage.delete();
+                } catch (e) {}
+            }
+
+            const statusMessage = await channel.send(
+                `🟢 **الأعضاء النشطين: ${activeCount}**`
+            );
+
+            memberSetupMessages.set(
+                interaction.guildId,
+                statusMessage.id
+            );
+
+            await interaction.editReply(
+                '✅ تم إعداد عداد الأعضاء النشطين. سيتحدث تلقائياً عند تغير حالة الأعضاء.'
+            );
+        } catch (error) {
+            console.error('Setup members error:', error);
+
+            await interaction.editReply(
+                '❌ ما قدرت أجهز عداد الأعضاء. تأكد أن Privileged Intents الخاصة بـ Server Members و Presence مفعلة في Discord Developer Portal.'
+            );
+        }
+
+        return;
+    }
+
     /* /setup_chat */
     if (interaction.commandName === 'setup_chat') {
         if (
@@ -436,6 +547,38 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply(
             'تم تشغيل التذكير 📢 كل 5 ساعات.'
         );
+    }
+});
+
+client.on('presenceUpdate', async (oldPresence, newPresence) => {
+    const guild = newPresence.guild;
+
+    if (!guild || !memberSetupMessages.has(guild.id)) return;
+
+    const channel = guild.channels.cache.find(ch =>
+        ch.isTextBased() &&
+        ch.messages &&
+        ch.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.SendMessages)
+    );
+
+    if (!channel) return;
+
+    try {
+        const message = await channel.messages.fetch(
+            memberSetupMessages.get(guild.id)
+        );
+
+        const activeCount = guild.members.cache.filter(member =>
+            !member.user.bot &&
+            member.presence &&
+            ['online', 'idle', 'dnd'].includes(member.presence.status)
+        ).size;
+
+        await message.edit(
+            `🟢 **الأعضاء النشطين: ${activeCount}**`
+        );
+    } catch (error) {
+        console.error('Active member counter update error:', error);
     }
 });
 
