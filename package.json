@@ -6,6 +6,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.25.1"
+    "discord.js": "^14.27.0",
+    "@discordjs/voice": "^0.19.2"
   }
 }
