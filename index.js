@@ -8,7 +8,8 @@ const {
     GatewayIntentBits,
     REST,
     Routes,
-    PermissionsBitField
+    PermissionsBitField,
+    MessageFlags
 } = require('discord.js');
 
 const {
@@ -47,6 +48,23 @@ function addBotLog(message) {
     botLogs.push(line);
     if (botLogs.length > MAX_BOT_LOGS) botLogs.shift();
     console.log(line);
+}
+
+
+function hasPermission(interaction, permission) {
+    return interaction.memberPermissions?.has(permission) ?? false;
+}
+
+function getInvokerMember(interaction) {
+    return interaction.guild?.members.cache.get(interaction.user.id) || null;
+}
+
+function hasHighRoleForDm(interaction) {
+    if (hasPermission(interaction, PermissionsBitField.Flags.Administrator)) return true;
+    const invoker = getInvokerMember(interaction);
+    const botMember = interaction.guild?.members.me;
+    if (!invoker || !botMember) return false;
+    return invoker.roles.highest.position > botMember.roles.highest.position;
 }
 
 const SONG_FILE =
@@ -160,7 +178,7 @@ async function restoreActiveMemberMessages() {
    Slash Commands Registration
 ========================= */
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     addBotLog(`Bot is online as ${client.user.tag}`);
     await restoreActiveMemberMessages();
 
@@ -425,7 +443,7 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.reply({
             content: `🤖 **إضافة البوت لسيرفر آخر:**\n${inviteUrl}\n\nيجب أن تملك صلاحية **Manage Server** في السيرفر الذي تريد إضافته إليه.`,
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
         return;
     }
@@ -441,7 +459,7 @@ client.on('interactionCreate', async interaction => {
 
     /* /userinfo */
     if (interaction.commandName === 'userinfo') {
-        const member = interaction.options.getMember('user') || interaction.member;
+        const member = interaction.options.getMember('user') || getInvokerMember(interaction);
         await interaction.reply(
             `👤 **${member.user.tag}**\n🆔 ${member.id}\n📅 دخل السيرفر: <t:${Math.floor(member.joinedTimestamp / 1000)}:F>\n🎭 الرتبة الأعلى: **${member.roles.highest.name}**`
         );
@@ -457,19 +475,30 @@ client.on('interactionCreate', async interaction => {
 
     /* /kick */
     if (interaction.commandName === 'kick') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
-            await interaction.reply({ content: '❌ تحتاج صلاحية Kick Members.', ephemeral: true });
+        if (!hasPermission(interaction, PermissionsBitField.Flags.KickMembers)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Kick Members.', flags: MessageFlags.Ephemeral });
             return;
         }
 
         const member = interaction.options.getMember('user');
+        const botMember = interaction.guild.members.me;
         if (!member) {
-            await interaction.reply({ content: '❌ ما قدرت أجد هذا العضو.', ephemeral: true });
+            await interaction.reply({ content: '❌ ما قدرت أجد هذا العضو.', flags: MessageFlags.Ephemeral });
             return;
         }
 
         if (member.id === interaction.user.id) {
-            await interaction.reply({ content: '❌ لا يمكنك طرد نفسك.', ephemeral: true });
+            await interaction.reply({ content: '❌ لا يمكنك طرد نفسك.', flags: MessageFlags.Ephemeral });
+            return;
+        }
+
+        if (!botMember?.permissions.has(PermissionsBitField.Flags.KickMembers)) {
+            await interaction.reply({ content: '❌ البوت نفسه لا يملك صلاحية Kick Members.', flags: MessageFlags.Ephemeral });
+            return;
+        }
+
+        if (!member.kickable) {
+            await interaction.reply({ content: '❌ لا يمكن للبوت طرد هذا العضو. ارفع رتبة البوت فوق رتبته وتأكد من الصلاحية.', flags: MessageFlags.Ephemeral });
             return;
         }
 
@@ -479,20 +508,20 @@ client.on('interactionCreate', async interaction => {
             addBotLog(`/kick used by ${interaction.user.tag} on ${member.user.tag}`);
         } catch (error) {
             addBotLog(`Kick error: ${error.message}`);
-            await interaction.reply({ content: '❌ ما قدرت أطرده. تأكد من رتبة البوت وصلاحياته.', ephemeral: true });
+            await interaction.reply({ content: '❌ ما قدرت أطرده. تأكد من رتبة البوت وصلاحياته.', flags: MessageFlags.Ephemeral });
         }
         return;
     }
 
     /* /clear */
     if (interaction.commandName === 'clear') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Messages.', ephemeral: true });
+        if (!hasPermission(interaction, PermissionsBitField.Flags.ManageMessages)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Messages.', flags: MessageFlags.Ephemeral });
             return;
         }
 
         const amount = interaction.options.getInteger('amount', true);
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             const deleted = await interaction.channel.bulkDelete(amount, true);
@@ -507,8 +536,8 @@ client.on('interactionCreate', async interaction => {
 
     /* /slowmode */
     if (interaction.commandName === 'slowmode') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', ephemeral: true });
+        if (!hasPermission(interaction, PermissionsBitField.Flags.ManageChannels)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', flags: MessageFlags.Ephemeral });
             return;
         }
 
@@ -523,7 +552,7 @@ client.on('interactionCreate', async interaction => {
             addBotLog(`/slowmode used by ${interaction.user.tag}: ${seconds}s`);
         } catch (error) {
             addBotLog(`Slowmode error: ${error.message}`);
-            await interaction.reply({ content: '❌ ما قدرت أغير الـ Slowmode.', ephemeral: true });
+            await interaction.reply({ content: '❌ ما قدرت أغير الـ Slowmode.', flags: MessageFlags.Ephemeral });
         }
         return;
     }
@@ -543,10 +572,10 @@ client.on('interactionCreate', async interaction => {
 
     /* /log */
     if (interaction.commandName === 'log') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+        if (!hasPermission(interaction, PermissionsBitField.Flags.ManageGuild)) {
             await interaction.reply({
                 content: '❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -557,7 +586,7 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.reply({
             content: `🧾 **آخر سجلات البوت:**\n\`\`\`\n${logs}\n\`\`\``,
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
         return;
     }
@@ -569,7 +598,7 @@ client.on('interactionCreate', async interaction => {
         if (!subscribers || subscribers.size === 0) {
             await interaction.reply({
                 content: '📭 لا يوجد أشخاص مشتركين حالياً.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -589,7 +618,7 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.reply({
             content: `📬 **المشتركون في رسائل الخاص (${subscribers.size}):**\n${lines.join('\n')}`,
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
 
         addBotLog(`/subscribers used by ${interaction.user.tag}`);
@@ -598,15 +627,12 @@ client.on('interactionCreate', async interaction => {
 
     /* /sand */
     if (interaction.commandName === 'sand') {
-        const hasHighRole =
-            interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
-            interaction.member.roles.highest.position >=
-            interaction.guild.members.me.roles.highest.position;
+        const hasHighRole = hasHighRoleForDm(interaction);
 
         if (!hasHighRole) {
             await interaction.reply({
                 content: '❌ هذا الأمر مخصص لأصحاب الرتب العالية فقط.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -617,12 +643,12 @@ client.on('interactionCreate', async interaction => {
         if (!member) {
             await interaction.reply({
                 content: '❌ ما قدرت أجد هذا العضو.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             await member.user.send(
@@ -641,7 +667,7 @@ client.on('interactionCreate', async interaction => {
 
     /* /join */
     if (interaction.commandName === 'join') {
-        const member = interaction.member;
+        const member = getInvokerMember(interaction);
 
         if (!member?.voice?.channel) {
             await interaction.reply('ادخل الروم الصوتي أولاً 🎙️');
@@ -661,7 +687,7 @@ client.on('interactionCreate', async interaction => {
 
     /* /play_music */
     if (interaction.commandName === 'play_music') {
-        const member = interaction.member;
+        const member = getInvokerMember(interaction);
 
         if (!member?.voice?.channel) {
             await interaction.reply('ادخل الروم الصوتي أولاً 🎙️');
@@ -707,7 +733,7 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.reply({
             content: '✅ تم اشتراكك في إعلانات السيرفر الخاصة.',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
 
         addBotLog(`${interaction.user.tag} subscribed to DMs in guild ${interaction.guildId}`);
@@ -721,7 +747,7 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.reply({
             content: '✅ تم إلغاء اشتراكك في الإعلانات الخاصة.',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
 
         addBotLog(`${interaction.user.tag} unsubscribed from DMs in guild ${interaction.guildId}`);
@@ -730,15 +756,12 @@ client.on('interactionCreate', async interaction => {
 
     /* /sandall */
     if (interaction.commandName === 'sandall') {
-        const hasHighRole =
-            interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
-            interaction.member.roles.highest.position >=
-            interaction.guild.members.me.roles.highest.position;
+        const hasHighRole = hasHighRoleForDm(interaction);
 
         if (!hasHighRole) {
             await interaction.reply({
                 content: '❌ هذا الأمر مخصص لأصحاب الرتب العالية فقط.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -749,12 +772,12 @@ client.on('interactionCreate', async interaction => {
         if (!subscribers || subscribers.size === 0) {
             await interaction.reply({
                 content: 'ℹ️ لا يوجد أعضاء مشتركين حاليًا.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         let sent = 0;
         let failed = 0;
@@ -782,21 +805,33 @@ client.on('interactionCreate', async interaction => {
 
     /* /ban */
     if (interaction.commandName === 'ban') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+        if (!hasPermission(interaction, PermissionsBitField.Flags.BanMembers)) {
             await interaction.reply({
                 content: '❌ تحتاج صلاحية Ban Members لاستخدام هذا الأمر.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
 
         const user = interaction.options.getUser('user', true);
+        const botMember = interaction.guild.members.me;
+        const targetMember = interaction.guild.members.cache.get(user.id);
 
         if (user.id === interaction.user.id) {
             await interaction.reply({
                 content: '❌ لا يمكنك حظر نفسك.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
+            return;
+        }
+
+        if (!botMember?.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+            await interaction.reply({ content: '❌ البوت نفسه لا يملك صلاحية Ban Members.', flags: MessageFlags.Ephemeral });
+            return;
+        }
+
+        if (targetMember && !targetMember.bannable) {
+            await interaction.reply({ content: '❌ لا يمكن للبوت حظر هذا العضو. ارفع رتبة البوت فوق رتبته وتأكد من الصلاحية.', flags: MessageFlags.Ephemeral });
             return;
         }
 
@@ -811,7 +846,7 @@ client.on('interactionCreate', async interaction => {
             addBotLog(`Ban error: ${error.message}`);
             await interaction.reply({
                 content: '❌ ما قدرت أحظر هذا الشخص. تأكد من الصلاحيات ورتبة البوت.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
         }
         return;
@@ -819,15 +854,15 @@ client.on('interactionCreate', async interaction => {
 
     /* /setup_members */
     if (interaction.commandName === 'setup_members') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+        if (!hasPermission(interaction, PermissionsBitField.Flags.ManageGuild)) {
             await interaction.reply({
                 content: '❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             const activeCount = interaction.guild.members.cache.filter(member =>
@@ -873,8 +908,8 @@ client.on('interactionCreate', async interaction => {
 
     /* /chat_lock */
     if (interaction.commandName === 'chat_lock') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', ephemeral: true });
+        if (!hasPermission(interaction, PermissionsBitField.Flags.ManageChannels)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', flags: MessageFlags.Ephemeral });
             return;
         }
 
@@ -888,15 +923,15 @@ client.on('interactionCreate', async interaction => {
             addBotLog(`/chat_lock used by ${interaction.user.tag} in ${interaction.guild.name}`);
         } catch (error) {
             addBotLog(`Chat lock error: ${error.message}`);
-            await interaction.reply({ content: '❌ ما قدرت أقفل الروم. تأكد من صلاحيات البوت.', ephemeral: true });
+            await interaction.reply({ content: '❌ ما قدرت أقفل الروم. تأكد من صلاحيات البوت.', flags: MessageFlags.Ephemeral });
         }
         return;
     }
 
     /* /chat_unlock */
     if (interaction.commandName === 'chat_unlock') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', ephemeral: true });
+        if (!hasPermission(interaction, PermissionsBitField.Flags.ManageChannels)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Channels.', flags: MessageFlags.Ephemeral });
             return;
         }
 
@@ -909,21 +944,21 @@ client.on('interactionCreate', async interaction => {
             addBotLog(`/chat_unlock used by ${interaction.user.tag} in ${interaction.guild.name}`);
         } catch (error) {
             addBotLog(`Chat unlock error: ${error.message}`);
-            await interaction.reply({ content: '❌ ما قدرت أفتح الروم. تأكد من صلاحيات البوت.', ephemeral: true });
+            await interaction.reply({ content: '❌ ما قدرت أفتح الروم. تأكد من صلاحيات البوت.', flags: MessageFlags.Ephemeral });
         }
         return;
     }
 
     /* /stop_chat */
     if (interaction.commandName === 'stop_chat') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Server.', ephemeral: true });
+        if (!hasPermission(interaction, PermissionsBitField.Flags.ManageGuild)) {
+            await interaction.reply({ content: '❌ تحتاج صلاحية Manage Server.', flags: MessageFlags.Ephemeral });
             return;
         }
 
         const timer = chatTimers.get(interaction.channelId);
         if (!timer) {
-            await interaction.reply({ content: 'ℹ️ ما فيه تذكير شغال في هذا الروم.', ephemeral: true });
+            await interaction.reply({ content: 'ℹ️ ما فيه تذكير شغال في هذا الروم.', flags: MessageFlags.Ephemeral });
             return;
         }
 
@@ -936,10 +971,10 @@ client.on('interactionCreate', async interaction => {
 
     /* /setup_chat */
     if (interaction.commandName === 'setup_chat') {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+        if (!hasPermission(interaction, PermissionsBitField.Flags.ManageGuild)) {
             await interaction.reply({
                 content: 'هذا الأمر يحتاج صلاحية Manage Server.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
