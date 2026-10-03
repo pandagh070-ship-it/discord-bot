@@ -36,6 +36,7 @@ const client = new Client({
 const chatTimers = new Map();
 const musicStates = new Map();
 const memberSetupMessages = new Map();
+const dmSubscribers = new Map();
 
 const SONG_FILE =
     'MURDER DRONES - BANG BANG BANG - Chainsaw Man Song - AMV_EDIT(M4A_128K).m4a';
@@ -95,6 +96,26 @@ client.once('ready', async () => {
         {
             name: 'setup_members',
             description: 'عرض عدد الأعضاء النشطين وتحديثه تلقائياً'
+        },
+        {
+            name: 'dm_subscribe',
+            description: 'الاشتراك في رسائل الإعلانات الخاصة'
+        },
+        {
+            name: 'dm_unsubscribe',
+            description: 'إلغاء الاشتراك في رسائل الإعلانات الخاصة'
+        },
+        {
+            name: 'sandall',
+            description: 'إرسال إعلان للمشتركين في الخاص',
+            options: [
+                {
+                    name: 'message',
+                    description: 'نص الإعلان',
+                    type: 3,
+                    required: true
+                }
+            ]
         }
     ];
 
@@ -396,6 +417,77 @@ client.on('interactionCreate', async interaction => {
             );
         }
 
+        return;
+    }
+
+    /* /dm_subscribe */
+    if (interaction.commandName === 'dm_subscribe') {
+        dmSubscribers.set(interaction.guildId, dmSubscribers.get(interaction.guildId) || new Set());
+        dmSubscribers.get(interaction.guildId).add(interaction.user.id);
+        await interaction.reply({
+            content: '✅ تم اشتراكك في إعلانات السيرفر الخاصة.',
+            ephemeral: true
+        });
+        return;
+    }
+
+    /* /dm_unsubscribe */
+    if (interaction.commandName === 'dm_unsubscribe') {
+        const subscribers = dmSubscribers.get(interaction.guildId);
+        if (subscribers) subscribers.delete(interaction.user.id);
+        await interaction.reply({
+            content: '✅ تم إلغاء اشتراكك في الإعلانات الخاصة.',
+            ephemeral: true
+        });
+        return;
+    }
+
+    /* /sandall */
+    if (interaction.commandName === 'sandall') {
+        const hasHighRole =
+            interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
+            interaction.member.roles.highest.position >=
+            interaction.guild.members.me.roles.highest.position;
+
+        if (!hasHighRole) {
+            await interaction.reply({
+                content: '❌ هذا الأمر مخصص لأصحاب الرتب العالية فقط.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        const message = interaction.options.getString('message', true);
+        const subscribers = dmSubscribers.get(interaction.guildId);
+
+        if (!subscribers || subscribers.size === 0) {
+            await interaction.reply({
+                content: 'ℹ️ لا يوجد أعضاء مشتركين حاليًا.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        let sent = 0;
+        let failed = 0;
+
+        for (const userId of subscribers) {
+            try {
+                const user = await client.users.fetch(userId);
+                await user.send(
+                    `📢 **إعلان من سيرفر ${interaction.guild.name}**\\n\\n${message}`
+                );
+                sent++;
+            } catch (error) {
+                failed++;
+            }
+        }
+
+        await interaction.editReply(
+            `✅ تم إرسال الإعلان إلى **${sent}** مشترك.\\n❌ لم تصل إلى **${failed}**.`
+        );
         return;
     }
 
