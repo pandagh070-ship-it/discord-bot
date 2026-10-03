@@ -1,5 +1,6 @@
 const http = require('http');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const {
     Client,
@@ -14,8 +15,11 @@ const {
     createAudioPlayer,
     createAudioResource,
     AudioPlayerStatus,
-    NoSubscriberBehavior
+    NoSubscriberBehavior,
+    StreamType
 } = require('@discordjs/voice');
+
+const ffmpegPath = require('ffmpeg-static');
 
 const client = new Client({
     intents: [
@@ -27,7 +31,10 @@ const client = new Client({
 });
 
 const chatTimers = new Map();
-const musicPlayers = new Map();
+const musicStates = new Map();
+
+const SONG_FILE =
+    'MURDER DRONES - BANG BANG BANG - Chainsaw Man Song - AMV_EDIT(M4A_128K).m4a';
 
 /* =========================
    Render Web Service
@@ -46,7 +53,7 @@ http.createServer((req, res) => {
 });
 
 /* =========================
-   Bot Ready
+   Slash Commands
 ========================= */
 
 client.once('ready', async () => {
@@ -67,7 +74,7 @@ client.once('ready', async () => {
         },
         {
             name: 'dis_music',
-            description: 'إيقاف الأغنية'
+            description: 'إيقاف الأغنية والخروج من الروم'
         }
     ];
 
@@ -77,9 +84,7 @@ client.once('ready', async () => {
     try {
         await rest.put(
             Routes.applicationCommands(client.user.id),
-            {
-                body: commands
-            }
+            { body: commands }
         );
 
         console.log('Global slash commands registered.');
@@ -112,6 +117,150 @@ function joinUserVoice(member) {
         adapterCreator: channel.guild.voiceAdapterCreator,
         selfDeaf: false,
         selfMute: false
+    });
+}
+
+/* =========================
+   Stop Music
+========================= */
+
+function stopMusic(guildId) {
+    const state = musicStates.get(guildId);
+
+    if (!state) {
+        return false;
+    }
+
+    try {
+        state.player.stop();
+    } catch (e) {}
+
+    if (state.ffmpeg) {
+        try {
+            state.ffmpeg.kill('SIGKILL');
+        } catch (e) {}
+    }
+
+    if (state.connection) {
+        try {
+            state.connection.destroy();
+        } catch (e) {}
+    }
+
+    musicStates.delete(guildId);
+
+    return true;
+}
+
+/* =========================
+   Play Music
+========================= */
+
+function playMusic(member) {
+    const channel = member.voice.channel;
+
+    if (!channel) {
+        throw new Error('USER_NOT_IN_VOICE');
+    }
+
+    // Stop any previous song in this server.
+    stopMusic(channel.guild.id);
+
+    const connection = joinVoiceChannel({
+        channelId: channel.id,
+        guildId: channel.guild.id,
+        adapterCreator: channel.guild.voiceAdapterCreator,
+        selfDeaf: false,
+        selfMute: false
+    });
+
+    const player = createAudioPlayer({
+        behaviors: {
+            noSubscriber: NoSubscriberBehavior.Play
+        }
+    });
+
+    const songPath = path.join(
+        __dirname,
+        SONG_FILE
+    );
+
+    // Convert M4A to raw PCM for Discord.
+    const ffmpeg = spawn(ffmpegPath, [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-i',
+        songPath,
+        '-f',
+        's16le',
+        '-ar',
+        '48000',
+        '-ac',
+        '2',
+        'pipe:1'
+    ]);
+
+    ffmpeg.stderr.on('data', data => {
+        console.error(
+            'FFmpeg:',
+            data.toString()
+        );
+    });
+
+    ffmpeg.on('error', error => {
+        console.error(
+            'FFmpeg process error:',
+            error
+        );
+    });
+
+    const resource = createAudioResource(
+        ffmpeg.stdout,
+        {
+            inputType: StreamType.Raw,
+            inlineVolume: false
+        }
+    );
+
+    player.play(resource);
+    connection.subscribe(player);
+
+    const state = {
+        connection,
+        player,
+        ffmpeg
+    };
+
+    musicStates.set(
+        channel.guild.id,
+        state
+    );
+
+    player.once(
+        AudioPlayerStatus.Idle,
+        () => {
+            console.log('Music finished.');
+
+            if (musicStates.get(channel.guild.id) === state) {
+                try {
+                    connection.destroy();
+                } catch (e) {}
+
+                musicStates.delete(
+                    channel.guild.id
+                );
+            }
+        }
+    );
+
+    player.on('error', error => {
+        console.error(
+            'Audio player error:',
+            error
+        );
+
+        stopMusic(channel.guild.id);
     });
 }
 
@@ -165,10 +314,7 @@ client.on('messageCreate', async message => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    /* =========================
-       /join
-    ========================= */
-
+    /* /join */
     if (interaction.commandName === 'join') {
         const member = interaction.member;
 
@@ -203,10 +349,7 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    /* =========================
-       /play_music
-    ========================= */
-
+    /* /play_music */
     if (interaction.commandName === 'play_music') {
         const member = interaction.member;
 
@@ -222,127 +365,53 @@ client.on('interactionCreate', async interaction => {
         }
 
         try {
-            const channel = member.voice.channel;
+            await interaction.deferReply();
 
-            const connection = joinVoiceChannel({
-                channelId: channel.id,
-                guildId: channel.guild.id,
-                adapterCreator:
-                    channel.guild.voiceAdapterCreator,
-                selfDeaf: false,
-                selfMute: false
-            });
+            playMusic(member);
 
-            let player = musicPlayers.get(
-                interaction.guildId
-            );
-
-            if (!player) {
-                player = createAudioPlayer({
-                    behaviors: {
-                        noSubscriber:
-                            NoSubscriberBehavior.Play
-                    }
-                });
-
-                musicPlayers.set(
-                    interaction.guildId,
-                    player
-                );
-            }
-
-            const songPath = path.join(
-                __dirname,
-                'song.mp3'
-            );
-
-            const resource =
-                createAudioResource(songPath);
-
-            player.play(resource);
-
-            connection.subscribe(player);
-
-            await interaction.reply(
+            await interaction.editReply(
                 '🎵 تم تشغيل الأغنية!'
             );
-
-            player.on(
-                AudioPlayerStatus.Idle,
-                () => {
-                    console.log(
-                        'Music finished.'
-                    );
-                }
-            );
-
         } catch (error) {
             console.error(
                 'Music error:',
                 error
             );
 
-            await interaction.reply(
-                '❌ ما قدرت أشغل الأغنية.'
-            );
+            if (error.message === 'USER_NOT_IN_VOICE') {
+                await interaction.editReply(
+                    'ادخل الروم الصوتي أولاً 🎙️'
+                );
+            } else {
+                await interaction.editReply(
+                    '❌ ما قدرت أشغل الأغنية. تأكد أن ملف الأغنية موجود.'
+                );
+            }
         }
 
         return;
     }
 
-    /* =========================
-       /dis_music
-    ========================= */
-
+    /* /dis_music */
     if (interaction.commandName === 'dis_music') {
-        const player = musicPlayers.get(
+        const stopped = stopMusic(
             interaction.guildId
         );
 
-        if (!player) {
+        if (stopped) {
+            await interaction.reply(
+                '⏹️ تم إيقاف الأغنية وخرجت من الروم.'
+            );
+        } else {
             await interaction.reply(
                 'ما فيه أغنية شغالة حالياً.'
-            );
-            return;
-        }
-
-        try {
-            player.stop();
-
-            musicPlayers.delete(
-                interaction.guildId
-            );
-
-            const connection =
-                interaction.guild.voiceStates.cache
-                    .get(client.user.id);
-
-            if (connection) {
-                connection.disconnect();
-            }
-
-            await interaction.reply(
-                '⏹️ تم إيقاف الأغنية.'
-            );
-
-        } catch (error) {
-            console.error(
-                'Stop music error:',
-                error
-            );
-
-            await interaction.reply(
-                '❌ ما قدرت أوقف الأغنية.'
             );
         }
 
         return;
     }
 
-    /* =========================
-       /setup_chat
-    ========================= */
-
+    /* /setup_chat */
     if (interaction.commandName === 'setup_chat') {
         if (
             !interaction.member.permissions.has(
