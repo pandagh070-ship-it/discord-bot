@@ -1,58 +1,69 @@
-const Discord = require('discord.js');
+const {
+    Client,
+    GatewayIntentBits,
+    REST,
+    Routes,
+    PermissionsBitField
+} = require('discord.js');
 
-const client = new Discord.Client();
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildVoiceStates
+    ]
+});
+
+
+// ==============================
+// الإعدادات
+// ==============================
 
 const chatTimers = new Map();
 
 
 // ==============================
-// دخول الروم الصوتي
+// عند تشغيل البوت
 // ==============================
 
-async function joinVoice(member) {
+client.once('ready', async () => {
 
-    if (
-        !member ||
-        !member.voice ||
-        !member.voice.channel
-    ) {
-        return {
-            success: false,
-            message: 'ادخل الروم الصوتي أولاً 🎙️'
-        };
-    }
+    console.log(`Bot is online as ${client.user.tag}`);
+
+    const commands = [
+        {
+            name: 'join',
+            description: 'دخول الروم الصوتي'
+        },
+        {
+            name: 'setup_chat',
+            description: 'تذكير بالتفاعل كل 5 ساعات'
+        }
+    ];
+
+    const rest = new REST({ version: '10' })
+        .setToken(process.env.DISCORD_TOKEN);
 
     try {
 
-        await member.voice.channel.join();
+        await rest.put(
+            Routes.applicationCommands(client.user.id),
+            {
+                body: commands
+            }
+        );
 
-        return {
-            success: true,
-            message: 'دخلت المكالمة 🎙️'
-        };
+        console.log('Global slash commands registered.');
 
     } catch (error) {
 
-        console.log('Voice error:', error);
+        console.error(
+            'Slash command registration error:',
+            error
+        );
 
-        return {
-            success: false,
-            message: 'حدث خطأ أثناء دخول المكالمة.'
-        };
     }
-}
-
-
-// ==============================
-// Bot Ready
-// ==============================
-
-client.on('ready', () => {
-
-    console.log(
-        'Bot is online as ' + client.user.tag
-    );
-
 });
 
 
@@ -60,33 +71,58 @@ client.on('ready', () => {
 // الرسائل العادية
 // ==============================
 
-client.on('message', async message => {
+client.on('messageCreate', async message => {
 
     if (message.author.bot) return;
 
 
-    // ==============================
     // هلا
-    // ==============================
-
     if (message.content === 'هلا') {
 
-        message.reply('هلا والله 👋');
+        await message.reply(
+            'هلا والله 👋'
+        );
 
     }
 
 
-    // ==============================
     // !join
-    // ==============================
-
     if (message.content === '!join') {
 
-        const result = await joinVoice(
-            message.member
-        );
+        if (
+            !message.member ||
+            !message.member.voice ||
+            !message.member.voice.channel
+        ) {
 
-        message.reply(result.message);
+            await message.reply(
+                'ادخل الروم الصوتي أولاً 🎙️'
+            );
+
+            return;
+        }
+
+
+        try {
+
+            await message.member.voice.channel.join();
+
+            await message.reply(
+                'دخلت المكالمة 🎙️'
+            );
+
+        } catch (error) {
+
+            console.error(
+                'Voice error:',
+                error
+            );
+
+            await message.reply(
+                'ما قدرت أدخل الروم الصوتي.'
+            );
+
+        }
 
     }
 
@@ -97,207 +133,134 @@ client.on('message', async message => {
 // Slash Commands
 // ==============================
 
-client.ws.on(
-    'INTERACTION_CREATE',
-    async interaction => {
+client.on('interactionCreate', async interaction => {
 
-        if (!interaction.data) return;
+    if (!interaction.isChatInputCommand()) return;
 
 
-        // ==============================
-        // /join
-        // ==============================
+    // ==============================
+    // /join
+    // ==============================
 
-        if (interaction.data.name === 'join') {
+    if (interaction.commandName === 'join') {
 
-            const guild = client.guilds.get(
-                interaction.guild_id
+        const member = interaction.member;
+
+        if (
+            !member ||
+            !member.voice ||
+            !member.voice.channel
+        ) {
+
+            await interaction.reply(
+                'ادخل الروم الصوتي أولاً 🎙️'
             );
 
-            if (!guild) return;
-
-
-            const member = guild.members.get(
-                interaction.member.user.id
-            );
-
-
-            const result = await joinVoice(member);
-
-
-            await client.api
-                .interactions(
-                    interaction.id,
-                    interaction.token
-                )
-                .callback.post({
-
-                    data: {
-                        type: 4,
-
-                        data: {
-                            content: result.message
-                        }
-                    }
-
-                });
-
+            return;
         }
 
 
-        // ==============================
-        // /setup_chat
-        // ==============================
+        try {
 
-        if (
-            interaction.data.name ===
-            'setup_chat'
-        ) {
+            await member.voice.channel.join();
 
-            const channelId =
-                interaction.channel_id;
-
-
-            // الرد على الأمر
-            await client.api
-                .interactions(
-                    interaction.id,
-                    interaction.token
-                )
-                .callback.post({
-
-                    data: {
-                        type: 4,
-
-                        data: {
-                            content:
-                                'تم تشغيل التذكير 📢 كل 5 ساعات.'
-                        }
-                    }
-
-                });
-
-
-            // إلغاء مؤقت قديم
-            if (
-                chatTimers.has(channelId)
-            ) {
-
-                clearInterval(
-                    chatTimers.get(channelId)
-                );
-
-            }
-
-
-            // إنشاء مؤقت جديد
-            const timer = setInterval(
-                () => {
-
-                    const channel =
-                        client.channels.get(
-                            channelId
-                        );
-
-
-                    if (channel) {
-
-                        channel.send(
-                            '@everyone تفاعلو 📢'
-                        );
-
-                    }
-
-                },
-                5 * 60 * 60 * 1000
+            await interaction.reply(
+                'دخلت المكالمة 🎙️'
             );
 
+        } catch (error) {
 
-            chatTimers.set(
-                channelId,
-                timer
+            console.error(
+                'Voice error:',
+                error
+            );
+
+            await interaction.reply(
+                'ما قدرت أدخل الروم الصوتي.'
             );
 
         }
 
     }
-);
 
 
-// ==============================
-// تسجيل Slash Commands
-// ==============================
+    // ==============================
+    // /setup_chat
+    // ==============================
 
-client.on('ready', async () => {
+    if (
+        interaction.commandName ===
+        'setup_chat'
+    ) {
 
-    const guilds =
-        client.guilds.array();
-
-
-    for (const guild of guilds) {
-
-        try {
-
-            // ==============================
-            // /join
-            // ==============================
-
-            await client.api
-                .applications(
-                    client.user.id
-                )
-                .guilds(guild.id)
-                .commands.post({
-
-                    data: {
-
-                        name: 'join',
-
-                        description:
-                            'دخول الروم الصوتي'
-
-                    }
-
-                });
+        const channelId =
+            interaction.channelId;
 
 
-            // ==============================
-            // /setup_chat
-            // ==============================
+        if (
+            !interaction.member.permissions.has(
+                PermissionsBitField.Flags.ManageGuild
+            )
+        ) {
 
-            await client.api
-                .applications(
-                    client.user.id
-                )
-                .guilds(guild.id)
-                .commands.post({
+            await interaction.reply({
+                content:
+                    'هذا الأمر يحتاج صلاحية Manage Server.',
+                ephemeral: true
+            });
 
-                    data: {
-
-                        name: 'setup_chat',
-
-                        description:
-                            'تذكير بالتفاعل كل 5 ساعات'
-
-                    }
-
-                });
+            return;
+        }
 
 
-            console.log(
-                'Slash commands registered in ' +
-                guild.name
-            );
+        if (chatTimers.has(channelId)) {
 
-
-        } catch (error) {
-
-            console.log(
-                'Slash command error:',
-                error
+            clearInterval(
+                chatTimers.get(channelId)
             );
 
         }
+
+
+        const timer = setInterval(
+            async () => {
+
+                const channel =
+                    client.channels.cache.get(
+                        channelId
+                    );
+
+                if (!channel) return;
+
+                try {
+
+                    await channel.send(
+                        '@everyone تفاعلو 📢'
+                    );
+
+                } catch (error) {
+
+                    console.error(
+                        'Message error:',
+                        error
+                    );
+
+                }
+
+            },
+            5 * 60 * 60 * 1000
+        );
+
+
+        chatTimers.set(
+            channelId,
+            timer
+        );
+
+
+        await interaction.reply(
+            'تم تشغيل التذكير 📢 كل 5 ساعات.'
+        );
 
     }
 
@@ -305,13 +268,14 @@ client.on('ready', async () => {
 
 
 // ==============================
-// مراقبة انقطاع الاتصال
+// أخطاء الاتصال
 // ==============================
 
-client.on('disconnect', () => {
+client.on('error', error => {
 
-    console.log(
-        'Bot disconnected.'
+    console.error(
+        'Discord client error:',
+        error
     );
 
 });
