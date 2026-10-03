@@ -8,6 +8,7 @@
   "dependencies": {
     "discord.js": "^14.27.0",
     "@discordjs/voice": "^0.19.2",
-    "ffmpeg-static": "^5.2.0"
+    "ffmpeg-static": "^5.3.0",
+    "opusscript": "^0.1.1"
   }
 }
