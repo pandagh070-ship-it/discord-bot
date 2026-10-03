@@ -11,7 +11,11 @@ const chatTimers = new Map();
 
 async function joinVoice(member) {
 
-    if (!member || !member.voice || !member.voice.channel) {
+    if (
+        !member ||
+        !member.voice ||
+        !member.voice.channel
+    ) {
         return {
             success: false,
             message: 'ادخل الروم الصوتي أولاً 🎙️'
@@ -19,6 +23,7 @@ async function joinVoice(member) {
     }
 
     try {
+
         await member.voice.channel.join();
 
         return {
@@ -28,7 +33,7 @@ async function joinVoice(member) {
 
     } catch (error) {
 
-        console.log(error);
+        console.log('Voice error:', error);
 
         return {
             success: false,
@@ -44,7 +49,9 @@ async function joinVoice(member) {
 
 client.on('ready', () => {
 
-    console.log('Bot is online as ' + client.user.tag);
+    console.log(
+        'Bot is online as ' + client.user.tag
+    );
 
 });
 
@@ -58,7 +65,10 @@ client.on('message', async message => {
     if (message.author.bot) return;
 
 
+    // ==============================
     // هلا
+    // ==============================
+
     if (message.content === 'هلا') {
 
         message.reply('هلا والله 👋');
@@ -66,10 +76,15 @@ client.on('message', async message => {
     }
 
 
+    // ==============================
     // !join
+    // ==============================
+
     if (message.content === '!join') {
 
-        const result = await joinVoice(message.member);
+        const result = await joinVoice(
+            message.member
+        );
 
         message.reply(result.message);
 
@@ -82,98 +97,131 @@ client.on('message', async message => {
 // Slash Commands
 // ==============================
 
-client.ws.on('INTERACTION_CREATE', async interaction => {
+client.ws.on(
+    'INTERACTION_CREATE',
+    async interaction => {
 
-    if (!interaction.data) return;
-
-
-    // ==============================
-    // /join
-    // ==============================
-
-    if (interaction.data.name === 'join') {
-
-        const guild = client.guilds.get(interaction.guild_id);
-
-        if (!guild) return;
-
-        const member = guild.members.get(
-            interaction.member.user.id
-        );
-
-        const result = await joinVoice(member);
+        if (!interaction.data) return;
 
 
-        await client.api
-            .interactions(interaction.id, interaction.token)
-            .callback.post({
+        // ==============================
+        // /join
+        // ==============================
 
-                data: {
-                    type: 4,
+        if (interaction.data.name === 'join') {
 
-                    data: {
-                        content: result.message
-                    }
-                }
-
-            });
-
-    }
-
-
-    // ==============================
-    // /setup_chat
-    // ==============================
-
-    if (interaction.data.name === 'setup_chat') {
-
-        const channelId = interaction.channel_id;
-
-
-        await client.api
-            .interactions(interaction.id, interaction.token)
-            .callback.post({
-
-                data: {
-                    type: 4,
-
-                    data: {
-                        content: 'تم تشغيل التذكير 📢 كل 5 ساعات.'
-                    }
-                }
-
-            });
-
-
-        // إلغاء مؤقت قديم
-        if (chatTimers.has(channelId)) {
-
-            clearInterval(
-                chatTimers.get(channelId)
+            const guild = client.guilds.get(
+                interaction.guild_id
             );
+
+            if (!guild) return;
+
+
+            const member = guild.members.get(
+                interaction.member.user.id
+            );
+
+
+            const result = await joinVoice(member);
+
+
+            await client.api
+                .interactions(
+                    interaction.id,
+                    interaction.token
+                )
+                .callback.post({
+
+                    data: {
+                        type: 4,
+
+                        data: {
+                            content: result.message
+                        }
+                    }
+
+                });
 
         }
 
 
-        // كل 5 ساعات
-        const timer = setInterval(() => {
+        // ==============================
+        // /setup_chat
+        // ==============================
 
-            const channel = client.channels.get(channelId);
+        if (
+            interaction.data.name ===
+            'setup_chat'
+        ) {
 
-            if (channel) {
+            const channelId =
+                interaction.channel_id;
 
-                channel.send('@everyone تفاعلو 📢');
+
+            // الرد على الأمر
+            await client.api
+                .interactions(
+                    interaction.id,
+                    interaction.token
+                )
+                .callback.post({
+
+                    data: {
+                        type: 4,
+
+                        data: {
+                            content:
+                                'تم تشغيل التذكير 📢 كل 5 ساعات.'
+                        }
+                    }
+
+                });
+
+
+            // إلغاء مؤقت قديم
+            if (
+                chatTimers.has(channelId)
+            ) {
+
+                clearInterval(
+                    chatTimers.get(channelId)
+                );
 
             }
 
-        }, 5 * 60 * 60 * 1000);
+
+            // إنشاء مؤقت جديد
+            const timer = setInterval(
+                () => {
+
+                    const channel =
+                        client.channels.get(
+                            channelId
+                        );
 
 
-        chatTimers.set(channelId, timer);
+                    if (channel) {
+
+                        channel.send(
+                            '@everyone تفاعلو 📢'
+                        );
+
+                    }
+
+                },
+                5 * 60 * 60 * 1000
+            );
+
+
+            chatTimers.set(
+                channelId,
+                timer
+            );
+
+        }
 
     }
-
-});
+);
 
 
 // ==============================
@@ -182,13 +230,22 @@ client.ws.on('INTERACTION_CREATE', async interaction => {
 
 client.on('ready', async () => {
 
-    client.guilds.forEach(async guild => {
+    const guilds =
+        client.guilds.array();
+
+
+    for (const guild of guilds) {
 
         try {
 
+            // ==============================
             // /join
+            // ==============================
+
             await client.api
-                .applications(client.user.id)
+                .applications(
+                    client.user.id
+                )
                 .guilds(guild.id)
                 .commands.post({
 
@@ -196,16 +253,22 @@ client.on('ready', async () => {
 
                         name: 'join',
 
-                        description: 'دخول الروم الصوتي'
+                        description:
+                            'دخول الروم الصوتي'
 
                     }
 
                 });
 
 
+            // ==============================
             // /setup_chat
+            // ==============================
+
             await client.api
-                .applications(client.user.id)
+                .applications(
+                    client.user.id
+                )
                 .guilds(guild.id)
                 .commands.post({
 
@@ -213,7 +276,8 @@ client.on('ready', async () => {
 
                         name: 'setup_chat',
 
-                        description: 'تذكير بالتفاعل كل 5 ساعات'
+                        description:
+                            'تذكير بالتفاعل كل 5 ساعات'
 
                     }
 
@@ -221,8 +285,10 @@ client.on('ready', async () => {
 
 
             console.log(
-                'Slash commands registered in ' + guild.name
+                'Slash commands registered in ' +
+                guild.name
             );
+
 
         } catch (error) {
 
@@ -233,18 +299,20 @@ client.on('ready', async () => {
 
         }
 
-    });
+    }
 
 });
 
 
 // ==============================
-// إعادة الاتصال عند الانقطاع
+// مراقبة انقطاع الاتصال
 // ==============================
 
 client.on('disconnect', () => {
 
-    console.log('Bot disconnected. Trying to reconnect...');
+    console.log(
+        'Bot disconnected.'
+    );
 
 });
 
@@ -253,4 +321,6 @@ client.on('disconnect', () => {
 // تشغيل البوت
 // ==============================
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(
+    process.env.DISCORD_TOKEN
+);
