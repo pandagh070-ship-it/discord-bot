@@ -36,6 +36,8 @@ const client = new Client({
 const chatTimers = new Map();
 const musicStates = new Map();
 const memberSetupMessages = new Map(); // guildId -> { channelId, messageId }
+const activeMemberCounts = new Map(); // guildId -> last displayed count
+const activeMemberUpdateTimers = new Map(); // guildId -> pending debounce timer
 const dmSubscribers = new Map();
 
 const SONG_FILE =
@@ -61,26 +63,50 @@ http.createServer((req, res) => {
    Slash Commands
 ========================= */
 
-async function updateActiveMembersMessage(guild) {
+async function updateActiveMembersMessage(guild, { force = false } = {}) {
     const setup = memberSetupMessages.get(guild.id);
     if (!setup) return;
 
     const channel = guild.channels.cache.get(setup.channelId);
     if (!channel || !channel.isTextBased()) return;
 
-    try {
-        await guild.members.fetch();
-        const activeCount = guild.members.cache.filter(member =>
-            !member.user.bot &&
-            member.presence &&
-            ['online', 'idle', 'dnd'].includes(member.presence.status)
-        ).size;
+    // Do not call guild.members.fetch() here.
+    // Discord rate-limits Request Guild Members (Gateway opcode 8).
+    // Presence/member events already keep the cache updated.
+    const activeCount = guild.members.cache.filter(member =>
+        !member.user.bot &&
+        member.presence &&
+        ['online', 'idle', 'dnd'].includes(member.presence.status)
+    ).size;
 
+    if (!force && activeMemberCounts.get(guild.id) === activeCount) {
+        return;
+    }
+
+    try {
         const message = await channel.messages.fetch(setup.messageId);
         await message.edit(`🟢 **الأعضاء النشطين: ${activeCount}**`);
+        activeMemberCounts.set(guild.id, activeCount);
     } catch (error) {
-        console.error('Active member counter update error:', error);
+        console.error('Active member counter message update error:', error);
     }
+}
+
+function scheduleActiveMemberUpdate(guild, delay = 30000) {
+    if (!guild || !memberSetupMessages.has(guild.id)) return;
+    if (activeMemberUpdateTimers.has(guild.id)) return;
+
+    const timer = setTimeout(async () => {
+        activeMemberUpdateTimers.delete(guild.id);
+
+        try {
+            await updateActiveMembersMessage(guild);
+        } catch (error) {
+            console.error('Scheduled active member counter update error:', error);
+        }
+    }, delay);
+
+    activeMemberUpdateTimers.set(guild.id, timer);
 }
 
 async function restoreActiveMemberMessages() {
@@ -119,8 +145,12 @@ async function restoreActiveMemberMessages() {
         }
     }
 
+    // One delayed cache-only update after startup.
+    // No full member fetch is performed here.
     for (const guild of client.guilds.cache.values()) {
-        await updateActiveMembersMessage(guild);
+        if (memberSetupMessages.has(guild.id)) {
+            scheduleActiveMemberUpdate(guild, 60000);
+        }
     }
 }
 
@@ -606,8 +636,6 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            await interaction.guild.members.fetch();
-
             const activeCount = interaction.guild.members.cache.filter(member =>
                 !member.user.bot &&
                 member.presence &&
@@ -646,6 +674,7 @@ client.on('interactionCreate', async interaction => {
                     messageId: statusMessage.id
                 }
             );
+            activeMemberCounts.set(interaction.guildId, activeCount);
 
             await interaction.editReply(
                 '✅ تم إعداد عداد الأعضاء النشطين. سيتحدث تلقائياً عند تغير حالة الأعضاء.'
@@ -720,21 +749,21 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-client.on('presenceUpdate', async (oldPresence, newPresence) => {
+client.on('presenceUpdate', (oldPresence, newPresence) => {
     const guild = newPresence.guild;
     if (!guild || !memberSetupMessages.has(guild.id)) return;
-    await updateActiveMembersMessage(guild);
+    scheduleActiveMemberUpdate(guild, 30000);
 });
 
-client.on('guildMemberAdd', async member => {
+client.on('guildMemberAdd', member => {
     if (memberSetupMessages.has(member.guild.id)) {
-        await updateActiveMembersMessage(member.guild);
+        scheduleActiveMemberUpdate(member.guild, 30000);
     }
 });
 
-client.on('guildMemberRemove', async member => {
+client.on('guildMemberRemove', member => {
     if (memberSetupMessages.has(member.guild.id)) {
-        await updateActiveMembersMessage(member.guild);
+        scheduleActiveMemberUpdate(member.guild, 30000);
     }
 });
 
