@@ -9,6 +9,9 @@ client.on('ready', () => {
 client.on('message', async message => {
     if (message.author.bot) return;
 
+    if (message.content === 'هلا') {
+    message.reply('هلا والله 👋');
+}
     if (message.content === '!join') {
 
         if (!message.member || !message.member.voice || !message.member.voice.channel) {
