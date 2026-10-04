@@ -9,7 +9,7 @@ const {
 } = require('discord.js');
 
 const {
-  joinVoiceChannel, createAudioPlayer, createAudioResource,
+  joinVoiceChannel, createAudioPlayer, createAudioResource, entersState, VoiceConnectionStatus,
   AudioPlayerStatus, NoSubscriberBehavior, StreamType
 } = require('@discordjs/voice');
 
@@ -130,7 +130,7 @@ function startTrack(guildId) {
   });
 }
 
-function playSong(memberObj, file, guildId) {
+async function playSong(memberObj, file, guildId) {
   if (!memberObj?.voice?.channel) throw new Error('VOICE_REQUIRED');
 
   let s = musicStates.get(guildId);
@@ -152,15 +152,12 @@ function playSong(memberObj, file, guildId) {
   musicStates.set(guildId, s);
   connection.subscribe(player);
   player.on('error', e => log('Audio error: ' + e.message));
+  await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+  log('Voice connection ready in ' + guildId);
   startTrack(guildId);
 }
 
-function queueSong(guildId, file) {
-  const s = musicStates.get(guildId);
-  if (!s) return false;
-  s.queue.push(file);
-  return true;
-}
+
 
 http.createServer((req,res) => {
   if (req.url === '/health') {
@@ -177,18 +174,8 @@ client.once('clientReady', async () => {
 
   const commands = [
     {name:'ping',description:'عرض سرعة البوت'},
-    {name:'join',description:'دخول الروم الصوتي'},
-    {name:'play_music',description:'فتح قائمة اختيار الأغاني'},
-    {name:'music_list',description:'عرض الأغاني المتوفرة'},
-    {name:'music_next',description:'تشغيل الأغنية التالية'},
-    {name:'music_repeat',description:'تفعيل أو إيقاف تكرار الأغنية'},
+    {name:'play_music',description:'اختيار وتشغيل أغنية'},
     {name:'music_stop',description:'إيقاف الموسيقى والخروج'},
-    {name:'queue',description:'عرض قائمة الانتظار'},
-    {name:'coinflip',description:'عملة: صورة أو كتابة'},
-    {name:'roll',description:'رمي نرد'},
-    {name:'rps',description:'حجر ورق مقص',options:[{name:'choice',description:'اختيارك',type:3,required:true,choices:[{name:'حجر',value:'rock'},{name:'ورق',value:'paper'},{name:'مقص',value:'scissors'}]}]},
-    {name:'8ball',description:'اسأل الكرة السحرية',options:[{name:'question',description:'سؤالك',type:3,required:true}]},
-    {name:'slots',description:'لعبة الحظ'},
     {name:'serverinfo',description:'معلومات السيرفر'},
     {name:'userinfo',description:'معلومات عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
     {name:'avatar',description:'عرض صورة عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
@@ -221,23 +208,29 @@ client.once('clientReady', async () => {
 
 client.on('interactionCreate', async i => {
   try {
-    if (i.isAutocomplete()) {
-      if (i.commandName !== 'play_music') return;
-      const q = (i.options.getString('song') || '').toLowerCase();
-      const choices = getSongs().filter(f => songLabel(f).toLowerCase().includes(q)).slice(0,25)
-        .map(f => ({name:songLabel(f).slice(0,100),value:songLabel(f).slice(0,100)}));
-      return i.respond(choices);
+    if (i.isStringSelectMenu() && i.customId === 'music_pick') {
+      const m = member(i);
+      if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
+      const songs = getSongs(), file = songs[Number(i.values[0])];
+      if (!file) return i.reply({content:'❌ الأغنية غير موجودة.',flags:MessageFlags.Ephemeral});
+      try {
+        await playSong(m,file,i.guildId);
+        return i.update({content:'🎵 شغالة الآن: **'+songLabel(file)+'**',components:[]});
+      } catch(e) {
+        log('Music start error: '+e.stack);
+        return i.update({content:'❌ فشل تشغيل الأغنية: '+e.message,components:[]});
+      }
+    }
+
+    if (i.isButton() && i.customId === 'music_stop_btn') {
+      stopMusic(i.guildId);
+      return i.update({content:'⏹️ تم إيقاف الموسيقى وخروج البوت.',components:[]});
     }
 
     if (!i.isChatInputCommand()) return;
     const c = i.commandName;
 
     if (c === 'ping') return i.reply('🏓 Pong! ' + Math.round(client.ws.ping) + 'ms');
-
-    if (c === 'music_list') {
-      const songs = getSongs();
-      return i.reply(songs.length ? '🎵 **الأغاني المتوفرة:**\n' + songs.map((s,n)=>`${n+1}. ${songLabel(s)}`).join('\n') : '📭 ما فيه أغاني. أضف ملفات إلى مجلد songs.');
-    }
 
     if (c === 'play_music') {
       const m = member(i);
@@ -247,8 +240,6 @@ client.on('interactionCreate', async i => {
       const menu = new StringSelectMenuBuilder().setCustomId('music_pick').setPlaceholder('🎵 اختر أغنية').addOptions(songs.slice(0,25).map((f,n)=>({label:songLabel(f).slice(0,100),value:String(n)})));
       const row = new ActionRowBuilder().addComponents(menu);
       const buttons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('music_next_btn').setLabel('التالي').setEmoji('⏭️').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('music_repeat_btn').setLabel('تكرار').setEmoji('🔁').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('music_stop_btn').setLabel('إيقاف').setEmoji('⏹️').setStyle(ButtonStyle.Danger)
       );
       return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
@@ -274,39 +265,8 @@ client.on('interactionCreate', async i => {
       return i.reply('⏭️ الآن: **'+songLabel(s.queue[0])+'**');
     }
 
-    if (c === 'music_next') {
-      const s = musicStates.get(i.guildId);
-      if (!s) return i.reply('❌ ما فيه أغنية شغالة.');
-      if (s.queue.length > 1) s.queue.shift();
-      else if (s.repeat) {}
-      else s.queue = [];
-      if (!s.queue.length) return i.reply('⏹️ انتهت قائمة التشغيل.');
-      startTrack(i.guildId);
-      return i.reply('⏭️ الأغنية التالية: **' + songLabel(s.queue[0]) + '**');
-    }
-
-    if (c === 'music_repeat') {
-      const s = musicStates.get(i.guildId);
-      if (!s) return i.reply('❌ شغل أغنية أولاً.');
-      s.repeat = !s.repeat;
-      return i.reply(s.repeat ? '🔁 التكرار: **تشغيل**' : '➡️ التكرار: **إيقاف**');
-    }
-
     if (c === 'music_stop') {
       return i.reply(stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى.' : 'ما فيه موسيقى شغالة.');
-    }
-
-    if (c === 'queue') {
-      const s = musicStates.get(i.guildId);
-      if (!s) return i.reply('📭 القائمة فارغة.');
-      return i.reply('🎶 **الآن:** ' + songLabel(s.current) + '\n' + (s.queue.slice(1).map((x,n)=>`${n+1}. ${songLabel(x)}`).join('\n') || 'لا توجد أغاني بعدها.'));
-    }
-
-    if (c === 'join') {
-      const m = member(i);
-      if (!m?.voice?.channel) return i.reply('🎙️ ادخل الروم أولاً.');
-      joinVoiceChannel({channelId:m.voice.channel.id,guildId:i.guildId,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:false,selfMute:false});
-      return i.reply('🎙️ دخلت الروم.');
     }
 
     if (c === 'coinflip') return i.reply(Math.random()<0.5 ? '🪙 **صورة**' : '🪙 **كتابة**');
