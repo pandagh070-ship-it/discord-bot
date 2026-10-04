@@ -65,7 +65,7 @@ function getSongs() {
 function getEffectFiles() {
   if (!fs.existsSync(effectsDir)) return [];
   return fs.readdirSync(effectsDir)
-    .filter(f => /\\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
+    .filter(f => /\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
     .map(f => path.join('effects', f))
     .sort((a,b) => a.localeCompare(b));
 }
