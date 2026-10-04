@@ -1080,6 +1080,16 @@ if (!discordToken) {
 addBotLog(`DISCORD_TOKEN loaded successfully (length: ${discordToken.length})`);
 
 
+/* AUTO_RESTART_EVERY_15_MINUTES */
+const AUTO_RESTART_MS = 15 * 60 * 1000;
+
+setTimeout(() => {
+    addBotLog('Scheduled 15-minute restart: restarting the bot process...');
+    console.log('Scheduled 15-minute restart. Exiting so Render can restart the service.');
+    process.exit(1);
+}, AUTO_RESTART_MS).unref();
+/* END AUTO_RESTART_EVERY_15_MINUTES */
+
 /* DISCORD_CONNECTION_WATCHDOG */
 setInterval(() => {
     try {
