@@ -5,7 +5,7 @@ const { spawn } = require('child_process');
 
 const {
   Client, GatewayIntentBits, REST, Routes, PermissionsBitField,
-  MessageFlags, EmbedBuilder
+  MessageFlags, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle
 } = require('discord.js');
 
 const {
@@ -110,6 +110,8 @@ function startTrack(guildId) {
   ]);
 
   const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.OggOpus });
+  ffmpeg.stderr.on('data', d => log('FFmpeg: ' + d.toString().trim()));
+  ffmpeg.on('close', code => { if (code !== 0) log('FFmpeg exited with code ' + code); });
   s.ffmpeg = ffmpeg;
   s.player.play(resource);
   s.current = file;
@@ -176,7 +178,7 @@ client.once('clientReady', async () => {
   const commands = [
     {name:'ping',description:'عرض سرعة البوت'},
     {name:'join',description:'دخول الروم الصوتي'},
-    {name:'play_music',description:'تشغيل أغنية من قائمة الأغاني',options:[{name:'song',description:'اسم الأغنية',type:3,required:true,autocomplete:true}]},
+    {name:'play_music',description:'فتح قائمة اختيار الأغاني'},
     {name:'music_list',description:'عرض الأغاني المتوفرة'},
     {name:'music_next',description:'تشغيل الأغنية التالية'},
     {name:'music_repeat',description:'تفعيل أو إيقاف تكرار الأغنية'},
@@ -240,12 +242,36 @@ client.on('interactionCreate', async i => {
     if (c === 'play_music') {
       const m = member(i);
       if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
-      const name = i.options.getString('song',true);
-      const file = findSong(name);
-      if (!file) return i.reply({content:'❌ الأغنية غير موجودة. استخدم /music_list.',flags:MessageFlags.Ephemeral});
-      await i.deferReply();
-      playSong(m,file,i.guildId);
-      return i.editReply('🎵 شغلت **' + songLabel(file) + '**');
+      const songs = getSongs();
+      if (!songs.length) return i.reply({content:'📭 ما فيه أغاني. أضف ملفات الصوت إلى مجلد songs.',flags:MessageFlags.Ephemeral});
+      const menu = new StringSelectMenuBuilder().setCustomId('music_pick').setPlaceholder('🎵 اختر أغنية').addOptions(songs.slice(0,25).map((f,n)=>({label:songLabel(f).slice(0,100),value:String(n)})));
+      const row = new ActionRowBuilder().addComponents(menu);
+      const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('music_next_btn').setLabel('التالي').setEmoji('⏭️').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('music_repeat_btn').setLabel('تكرار').setEmoji('🔁').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('music_stop_btn').setLabel('إيقاف').setEmoji('⏹️').setStyle(ButtonStyle.Danger)
+      );
+      return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
+    }
+
+    if (i.isStringSelectMenu() && i.customId === 'music_pick') {
+      const m = member(i);
+      if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
+      const songs = getSongs(), file = songs[Number(i.values[0])];
+      if (!file) return i.reply({content:'❌ الأغنية غير موجودة.',flags:MessageFlags.Ephemeral});
+      try { playSong(m,file,i.guildId); } catch(e) { log('Music start error: '+e.stack); return i.update({content:'❌ فشل تشغيل الأغنية. تأكد من ملف الصوت.',components:[]}); }
+      return i.update({content:'🎵 شغالة الآن: **'+songLabel(file)+'**',components:[]});
+    }
+
+    if (i.isButton() && ['music_next_btn','music_repeat_btn','music_stop_btn'].includes(i.customId)) {
+      const s = musicStates.get(i.guildId);
+      if (i.customId === 'music_stop_btn') { stopMusic(i.guildId); return i.update({content:'⏹️ تم إيقاف الموسيقى.',components:[]}); }
+      if (!s) return i.reply({content:'❌ ما فيه أغنية شغالة.',flags:MessageFlags.Ephemeral});
+      if (i.customId === 'music_repeat_btn') { s.repeat=!s.repeat; return i.reply({content:s.repeat?'🔁 التكرار: تشغيل':'➡️ التكرار: إيقاف',flags:MessageFlags.Ephemeral}); }
+      if (s.queue.length>1) s.queue.shift(); else if (!s.repeat) s.queue=[];
+      if (!s.queue.length) return i.reply('⏹️ انتهت قائمة التشغيل.');
+      startTrack(i.guildId);
+      return i.reply('⏭️ الآن: **'+songLabel(s.queue[0])+'**');
     }
 
     if (c === 'music_next') {
