@@ -23,6 +23,31 @@ const {
 
 const ffmpegPath = require('ffmpeg-static');
 
+
+/* AUTORECOVERY_GUARD */
+let recoveryExitScheduled = false;
+
+function scheduleRecoveryExit(reason, error) {
+    if (recoveryExitScheduled) return;
+    recoveryExitScheduled = true;
+
+    console.error(`Fatal runtime error: ${reason}`, error);
+    console.error('Restarting process so Render can automatically recover the bot...');
+
+    setTimeout(() => {
+        process.exit(1);
+    }, 3000).unref();
+}
+
+process.on('uncaughtException', (error) => {
+    scheduleRecoveryExit('uncaughtException', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+    scheduleRecoveryExit('unhandledRejection', reason);
+});
+/* END AUTORECOVERY_GUARD */
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
