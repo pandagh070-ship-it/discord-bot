@@ -36,6 +36,8 @@ const chatTimers = new Map();
 const dmSubscribers = new Map();
 const memberSetupMessages = new Map();
 const logs = [];
+const gameLobbies = new Map();
+const rpsGames = new Map();
 
 function log(x) {
   const line = '[' + new Date().toISOString() + '] ' + x;
@@ -176,6 +178,7 @@ client.once('clientReady', async () => {
     {name:'ping',description:'عرض سرعة البوت'},
     {name:'play_music',description:'اختيار وتشغيل أغنية'},
     {name:'music_stop',description:'إيقاف الموسيقى والخروج'},
+    {name:'games',description:'فتح قائمة الألعاب'},
     {name:'serverinfo',description:'معلومات السيرفر'},
     {name:'userinfo',description:'معلومات عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
     {name:'avatar',description:'عرض صورة عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
@@ -227,10 +230,129 @@ client.on('interactionCreate', async i => {
       return i.update({content:'⏹️ تم إيقاف الموسيقى وخروج البوت.',components:[]});
     }
 
+    // Games UI
+    if (i.isStringSelectMenu() && i.customId === 'games_menu') {
+      const choice = i.values[0];
+      if (choice === 'rps_bot') {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('rps_bot_rock').setLabel('حجر').setEmoji('🪨').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId('rps_bot_paper').setLabel('ورقة').setEmoji('📄').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId('rps_bot_scissors').setLabel('مقص').setEmoji('✂️').setStyle(ButtonStyle.Primary)
+        );
+        return i.update({content:'🪨📄✂️ اختر حركتك ضد البوت:',components:[row]});
+      }
+      if (choice === 'rps_player') {
+        const key = i.guildId + ':rps';
+        const old = rpsGames.get(key);
+        if (old) return i.update({content:'⏳ توجد مباراة حجر ورقة مقص تنتظر لاعباً آخر.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('rps_join').setLabel('انضم للمباراة').setStyle(ButtonStyle.Success))]});
+        rpsGames.set(key,{host:i.user.id,player:null,channelId:i.channelId});
+        return i.update({content:'🪨📄✂️ تم إنشاء مباراة ضد لاعب. اضغط انضمام.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('rps_join').setLabel('انضم للمباراة').setStyle(ButtonStyle.Success))]});
+      }
+      if (choice === 'mafia') {
+        const key = i.guildId + ':mafia';
+        let g = gameLobbies.get(key);
+        if (!g) {
+          g={host:i.user.id,players:new Set([i.user.id]),channelId:i.channelId};
+          gameLobbies.set(key,g);
+        }
+        return i.update({content:'🔪 **مافيا**\nاللاعبون: **'+g.players.size+'**\nالحد الأدنى: **4 لاعبين**\n\nانضموا ثم اضغطوا بدء اللعبة.',components:[
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('mafia_join').setLabel('انضم').setEmoji('👤').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('mafia_start').setLabel('بدء اللعبة').setEmoji('▶️').setStyle(ButtonStyle.Primary)
+          )
+        ]});
+      }
+    }
+
+    if (i.isButton() && i.customId.startsWith('rps_bot_')) {
+      const userMove=i.customId.replace('rps_bot_','');
+      const botMove=['rock','paper','scissors'][Math.floor(Math.random()*3)];
+      const beats={rock:'scissors',paper:'rock',scissors:'paper'};
+      const names={rock:'🪨 حجر',paper:'📄 ورقة',scissors:'✂️ مقص'};
+      const result=userMove===botMove?'🤝 تعادل':beats[userMove]===botMove?'🏆 فزت!':'🤖 البوت فاز!';
+      return i.update({content:'🪨📄✂️ **حجر ورقة مقص**\nأنت: '+names[userMove]+'\nالبوت: '+names[botMove]+'\n\n'+result,components:[]});
+    }
+
+    if (i.isButton() && i.customId === 'rps_join') {
+      const key=i.guildId+':rps', g=rpsGames.get(key);
+      if (!g) return i.reply({content:'❌ المباراة انتهت.',flags:MessageFlags.Ephemeral});
+      if (g.host===i.user.id) return i.reply({content:'❌ أنت منشئ المباراة.',flags:MessageFlags.Ephemeral});
+      if (g.player) return i.reply({content:'❌ المباراة مكتملة.',flags:MessageFlags.Ephemeral});
+      g.player=i.user.id;
+      const row=new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('rps_pick_rock').setLabel('حجر').setEmoji('🪨').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('rps_pick_paper').setLabel('ورقة').setEmoji('📄').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('rps_pick_scissors').setLabel('مقص').setEmoji('✂️').setStyle(ButtonStyle.Primary)
+      );
+      return i.update({content:'🪨📄✂️ **المباراة بدأت!**\n<@'+g.host+'> و <@'+g.player+'>\nكل لاعب يضغط حركته. الاختيارات سرية.',components:[row]});
+    }
+
+    if (i.isButton() && i.customId.startsWith('rps_pick_')) {
+      const key=i.guildId+':rps', g=rpsGames.get(key);
+      if (!g || !g.player) return i.reply({content:'❌ لا توجد مباراة نشطة.',flags:MessageFlags.Ephemeral});
+      if (i.user.id!==g.host && i.user.id!==g.player) return i.reply({content:'❌ لست من لاعبي المباراة.',flags:MessageFlags.Ephemeral});
+      const move=i.customId.replace('rps_pick_','');
+      g.moves=g.moves||{};
+      g.moves[i.user.id]=move;
+      await i.reply({content:'✅ تم تسجيل حركتك.',flags:MessageFlags.Ephemeral});
+      if (g.moves[g.host] && g.moves[g.player]) {
+        const a=g.moves[g.host], b=g.moves[g.player], beats={rock:'scissors',paper:'rock',scissors:'paper'};
+        const names={rock:'🪨 حجر',paper:'📄 ورقة',scissors:'✂️ مقص'};
+        const result=a===b?'🤝 تعادل':beats[a]===b?'<@'+g.host+'> 🏆 فاز!':'<@'+g.player+'> 🏆 فاز!';
+        await i.channel.send('🪨📄✂️ **نتيجة المباراة**\n<@'+g.host+'>: '+names[a]+'\n<@'+g.player+'>: '+names[b]+'\n'+result);
+        rpsGames.delete(key);
+      }
+      return;
+    }
+
+    if (i.isButton() && i.customId === 'mafia_join') {
+      const key=i.guildId+':mafia', g=gameLobbies.get(key);
+      if (!g) return i.reply({content:'❌ لا توجد غرفة مافيا.',flags:MessageFlags.Ephemeral});
+      if (g.players.has(i.user.id)) return i.reply({content:'❌ أنت منضم بالفعل.',flags:MessageFlags.Ephemeral});
+      if (g.started) return i.reply({content:'❌ اللعبة بدأت.',flags:MessageFlags.Ephemeral});
+      if (g.players.size>=12) return i.reply({content:'❌ الغرفة مكتملة (12 لاعب).',flags:MessageFlags.Ephemeral});
+      g.players.add(i.user.id);
+      return i.update({content:'🔪 **مافيا**\nاللاعبون: **'+g.players.size+'**\nالحد الأدنى: **4**\n\nاضغطوا انضمام أو بدء اللعبة.',components:[
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('mafia_join').setLabel('انضم').setEmoji('👤').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('mafia_start').setLabel('بدء اللعبة').setEmoji('▶️').setStyle(ButtonStyle.Primary)
+        )
+      ]});
+    }
+
+    if (i.isButton() && i.customId === 'mafia_start') {
+      const key=i.guildId+':mafia', g=gameLobbies.get(key);
+      if (!g) return i.reply({content:'❌ لا توجد غرفة مافيا.',flags:MessageFlags.Ephemeral});
+      if (g.host!==i.user.id) return i.reply({content:'❌ منشئ الغرفة فقط يستطيع بدء اللعبة.',flags:MessageFlags.Ephemeral});
+      if (g.players.size<4) return i.reply({content:'⏳ تحتاج اللعبة إلى 4 لاعبين على الأقل. حالياً: '+g.players.size,flags:MessageFlags.Ephemeral});
+      g.started=true;
+      const players=[...g.players];
+      const shuffled=[...players].sort(()=>Math.random()-0.5);
+      const mafiaCount=Math.max(1,Math.floor(players.length/4));
+      const mafia=new Set(shuffled.slice(0,mafiaCount));
+      gameLobbies.set(key,g);
+      const roles=[];
+      for(const id of players) {
+        const role=mafia.has(id)?'🔪 مافيا':'👤 مواطن';
+        try { const u=await client.users.fetch(id); await u.send('🔐 دورك في المافيا: **'+role+'**\nلا ترسل دورك للاعبين.'); } catch {}
+        roles.push('<@'+id+'>');
+      }
+      return i.update({content:'🔪 **بدأت لعبة المافيا!**\nاللاعبون: '+roles.join('، ')+'\n\nتم إرسال الأدوار في الخاص. تبدأ الجولة الأولى الآن.',components:[]});
+    }
+
     if (!i.isChatInputCommand()) return;
     const c = i.commandName;
 
     if (c === 'ping') return i.reply('🏓 Pong! ' + Math.round(client.ws.ping) + 'ms');
+
+    if (c === 'games') {
+      const menu=new StringSelectMenuBuilder().setCustomId('games_menu').setPlaceholder('🎮 اختر لعبة').addOptions(
+        {label:'مافيا',description:'4 إلى 12 لاعباً',value:'mafia',emoji:'🔪'},
+        {label:'حجر ورقة مقص ضد بوت',description:'العب فوراً ضد البوت',value:'rps_bot',emoji:'🤖'},
+        {label:'حجر ورقة مقص ضد لاعب',description:'أنشئ مباراة وانتظر لاعباً',value:'rps_player',emoji:'👤'}
+      );
+      return i.reply({content:'🎮 **قائمة الألعاب**\nاختر اللعبة:',components:[new ActionRowBuilder().addComponents(menu)]});
+    }
 
     if (c === 'play_music') {
       const m = member(i);
@@ -245,50 +367,8 @@ client.on('interactionCreate', async i => {
       return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
     }
 
-    if (i.isStringSelectMenu() && i.customId === 'music_pick') {
-      const m = member(i);
-      if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
-      const songs = getSongs(), file = songs[Number(i.values[0])];
-      if (!file) return i.reply({content:'❌ الأغنية غير موجودة.',flags:MessageFlags.Ephemeral});
-      try { playSong(m,file,i.guildId); } catch(e) { log('Music start error: '+e.stack); return i.update({content:'❌ فشل تشغيل الأغنية. تأكد من ملف الصوت.',components:[]}); }
-      return i.update({content:'🎵 شغالة الآن: **'+songLabel(file)+'**',components:[]});
-    }
-
-    if (i.isButton() && ['music_next_btn','music_repeat_btn','music_stop_btn'].includes(i.customId)) {
-      const s = musicStates.get(i.guildId);
-      if (i.customId === 'music_stop_btn') { stopMusic(i.guildId); return i.update({content:'⏹️ تم إيقاف الموسيقى.',components:[]}); }
-      if (!s) return i.reply({content:'❌ ما فيه أغنية شغالة.',flags:MessageFlags.Ephemeral});
-      if (i.customId === 'music_repeat_btn') { s.repeat=!s.repeat; return i.reply({content:s.repeat?'🔁 التكرار: تشغيل':'➡️ التكرار: إيقاف',flags:MessageFlags.Ephemeral}); }
-      if (s.queue.length>1) s.queue.shift(); else if (!s.repeat) s.queue=[];
-      if (!s.queue.length) return i.reply('⏹️ انتهت قائمة التشغيل.');
-      startTrack(i.guildId);
-      return i.reply('⏭️ الآن: **'+songLabel(s.queue[0])+'**');
-    }
-
     if (c === 'music_stop') {
       return i.reply(stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى.' : 'ما فيه موسيقى شغالة.');
-    }
-
-    if (c === 'coinflip') return i.reply(Math.random()<0.5 ? '🪙 **صورة**' : '🪙 **كتابة**');
-    if (c === 'roll') return i.reply('🎲 النتيجة: **' + (Math.floor(Math.random()*6)+1) + '**');
-
-    if (c === 'rps') {
-      const user=i.options.getString('choice',true);
-      const bot=['rock','paper','scissors'][Math.floor(Math.random()*3)];
-      const win=(user==='rock'&&bot==='scissors')||(user==='paper'&&bot==='rock')||(user==='scissors'&&bot==='paper');
-      const names={rock:'حجر 🪨',paper:'ورق 📄',scissors:'مقص ✂️'};
-      return i.reply('أنت: **'+names[user]+'**\nأنا: **'+names[bot]+'**\n\n'+(user===bot?'🤝 تعادل':win?'🏆 فزت!':'🤖 أنا فزت!'));
-    }
-
-    if (c === '8ball') {
-      const answers=['نعم ✅','لا ❌','غالباً 🔮','ممكن 🤔','أكيد 💯','لا أظن 🌀','اسألني لاحقاً ⏳'];
-      return i.reply('🎱 ' + answers[Math.floor(Math.random()*answers.length)]);
-    }
-
-    if (c === 'slots') {
-      const a=['🍒','🍋','🍉','⭐','7️⃣'];
-      const x=[0,0,0].map(()=>a[Math.floor(Math.random()*a.length)]);
-      return i.reply(x.join(' | ') + '\n' + (x[0]===x[1]&&x[1]===x[2]?'🎉 جاكبوت!':'😅 حاول مرة ثانية'));
     }
 
     if (c === 'serverinfo') return i.reply(`🏠 **${i.guild.name}**\n👥 الأعضاء: **${i.guild.memberCount}**\n📝 الرومات: **${i.guild.channels.cache.size}**\n🎭 الرتب: **${i.guild.roles.cache.size}**`);
