@@ -31,6 +31,7 @@ const client = new Client({
 
 const PORT = process.env.PORT || 10000;
 const songsDir = path.join(__dirname, 'songs');
+const effectsDir = path.join(__dirname, 'effects');
 const musicStates = new Map();
 const chatTimers = new Map();
 const dmSubscribers = new Map();
@@ -39,6 +40,7 @@ const logs = [];
 const gameLobbies = new Map();
 const rpsGames = new Map();
 const battleGames = new Map();
+const effectStates = new Map();
 
 function log(x) {
   const line = '[' + new Date().toISOString() + '] ' + x;
@@ -48,6 +50,7 @@ function log(x) {
 }
 
 if (!fs.existsSync(songsDir)) fs.mkdirSync(songsDir, { recursive: true });
+if (!fs.existsSync(effectsDir)) fs.mkdirSync(effectsDir, { recursive: true });
 
 function getSongs() {
   const files = fs.readdirSync(songsDir)
@@ -57,6 +60,16 @@ function getSongs() {
   return [...new Set([...files.map(f => path.join('songs', f)), ...rootSongs])]
     .sort((a,b) => a.localeCompare(b));
 }
+
+
+function getEffectFiles() {
+  if (!fs.existsSync(effectsDir)) return [];
+  return fs.readdirSync(effectsDir)
+    .filter(f => /\\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
+    .map(f => path.join('effects', f))
+    .sort((a,b) => a.localeCompare(b));
+}
+
 
 function songLabel(file) {
   return path.basename(file).replace(/\.[^.]+$/, '');
@@ -133,6 +146,73 @@ function startTrack(guildId) {
   });
 }
 
+
+async function playVoiceEffect(memberObj, file, guildId) {
+  if (!memberObj?.voice?.channel) throw new Error('VOICE_REQUIRED');
+
+  const old = effectStates.get(guildId);
+  if (old) {
+    try { old.player.stop(true); } catch {}
+    try { old.ffmpeg?.kill('SIGKILL'); } catch {}
+    try { old.connection.destroy(); } catch {}
+    effectStates.delete(guildId);
+  }
+
+  const channel = memberObj.voice.channel;
+  const connection = joinVoiceChannel({
+    channelId: channel.id,
+    guildId,
+    adapterCreator: channel.guild.voiceAdapterCreator,
+    selfDeaf: false,
+    selfMute: false
+  });
+
+  const player = createAudioPlayer({
+    behaviors: { noSubscriber: NoSubscriberBehavior.Play }
+  });
+
+  const state = { connection, player, ffmpeg: null };
+  effectStates.set(guildId, state);
+  connection.subscribe(player);
+
+  player.on('error', e => log('Effect audio error: ' + e.message));
+
+  await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+
+  const full = path.isAbsolute(file) ? file : path.join(__dirname, file);
+  if (!fs.existsSync(full)) {
+    try { connection.destroy(); } catch {}
+    effectStates.delete(guildId);
+    throw new Error('EFFECT_FILE_NOT_FOUND');
+  }
+
+  const ffmpeg = spawn(ffmpegPath, [
+    '-hide_banner','-loglevel','error','-i',full,'-vn',
+    '-ac','2','-ar','48000','-c:a','libopus','-b:a','128k',
+    '-f','ogg','pipe:1'
+  ]);
+
+  state.ffmpeg = ffmpeg;
+  const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.OggOpus });
+
+  ffmpeg.stderr.on('data', d => log('Effect FFmpeg: ' + d.toString().trim()));
+  ffmpeg.on('error', e => log('Effect FFmpeg error: ' + e.message));
+  ffmpeg.on('close', code => {
+    if (code !== 0) log('Effect FFmpeg exited with code ' + code);
+  });
+
+  player.play(resource);
+  log('Playing effect ' + songLabel(file) + ' in ' + guildId);
+
+  player.once(AudioPlayerStatus.Idle, () => {
+    if (effectStates.get(guildId) !== state) return;
+    try { ffmpeg.kill(); } catch {}
+    try { connection.destroy(); } catch {}
+    effectStates.delete(guildId);
+    log('Effect finished, left voice in ' + guildId);
+  });
+}
+
 async function playSong(memberObj, file, guildId) {
   if (!memberObj?.voice?.channel) throw new Error('VOICE_REQUIRED');
 
@@ -180,6 +260,7 @@ client.once('clientReady', async () => {
     {name:'play_music',description:'اختيار وتشغيل أغنية'},
     {name:'music_stop',description:'إيقاف الموسيقى والخروج'},
     {name:'games',description:'فتح قائمة الألعاب'},
+    {name:'effects',description:'تشغيل مؤثر صوتي داخل الفويس'},
     {name:'serverinfo',description:'معلومات السيرفر'},
     {name:'userinfo',description:'معلومات عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
     {name:'avatar',description:'عرض صورة عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
@@ -229,6 +310,28 @@ client.on('interactionCreate', async i => {
     if (i.isButton() && i.customId === 'music_stop_btn') {
       stopMusic(i.guildId);
       return i.update({content:'⏹️ تم إيقاف الموسيقى وخروج البوت.',components:[]});
+    }
+
+
+    if (i.isStringSelectMenu() && i.customId === 'effects_menu') {
+      const m = member(i);
+      if (!m?.voice?.channel) {
+        return i.update({content:'🎙️ ادخل الروم الصوتي أولاً.',components:[]});
+      }
+
+      const effects = getEffectFiles();
+      const file = effects[Number(i.values[0])];
+      if (!file) {
+        return i.update({content:'❌ المؤثر غير موجود.',components:[]});
+      }
+
+      try {
+        await playVoiceEffect(m, file, i.guildId);
+        return i.update({content:'🔊 تم تشغيل المؤثر: **' + songLabel(file) + '**\\n🚪 البوت سيخرج تلقائياً بعد انتهاء الصوت.',components:[]});
+      } catch(e) {
+        log('Effect start error: ' + e.stack);
+        return i.update({content:'❌ فشل تشغيل المؤثر الصوتي.',components:[]});
+      }
     }
 
     // Games UI
@@ -404,6 +507,35 @@ client.on('interactionCreate', async i => {
     const c = i.commandName;
 
     if (c === 'ping') return i.reply('🏓 Pong! ' + Math.round(client.ws.ping) + 'ms');
+
+
+    if (c === 'effects') {
+      const m = member(i);
+      if (!m?.voice?.channel) {
+        return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
+      }
+
+      const effects = getEffectFiles();
+      if (!effects.length) {
+        return i.reply({content:'📭 ما فيه مؤثرات صوتية. أضف ملفات الصوت إلى مجلد effects.',flags:MessageFlags.Ephemeral});
+      }
+
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId('effects_menu')
+        .setPlaceholder('🔊 اختر مؤثر صوتي')
+        .addOptions(
+          effects.slice(0,25).map((f,n)=>({
+            label:songLabel(f).slice(0,100),
+            value:String(n)
+          }))
+        );
+
+      return i.reply({
+        content:'🔊 **المؤثرات الصوتية**\\nاختر مؤثراً، والبوت سيدخل الروم ويشغله ثم يخرج تلقائياً.',
+        components:[new ActionRowBuilder().addComponents(menu)],
+        flags:MessageFlags.Ephemeral
+      });
+    }
 
     if (c === 'games') {
       const menu=new StringSelectMenuBuilder().setCustomId('games_menu').setPlaceholder('🎮 اختر لعبة').addOptions(
