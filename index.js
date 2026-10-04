@@ -188,7 +188,7 @@ async function playVoiceEffect(memberObj, file, guildId) {
 
   const ffmpeg = spawn(ffmpegPath, [
     '-hide_banner','-loglevel','error','-i',full,'-vn',
-    '-ac','2','-ar','48000','-c:a','libopus','-b:a','128k',
+    '-ac','2','-ar','48000','-filter:a','volume=3.0','-c:a','libopus','-b:a','128k',
     '-f','ogg','pipe:1'
   ]);
 
