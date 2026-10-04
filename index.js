@@ -102,6 +102,19 @@ const SONG_FILE =
 const PORT = process.env.PORT || 10000;
 
 http.createServer((req, res) => {
+    if (req.url === '/health') {
+        const discordReady = client?.isReady?.() ?? false;
+        res.writeHead(discordReady ? 200 : 503, {
+            'Content-Type': 'application/json'
+        });
+        res.end(JSON.stringify({
+            ok: discordReady,
+            discord: discordReady ? 'connected' : 'disconnected',
+            uptime: Math.floor(process.uptime())
+        }));
+        return;
+    }
+
     res.writeHead(200, {
         'Content-Type': 'text/plain'
     });
