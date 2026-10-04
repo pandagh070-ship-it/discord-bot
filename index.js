@@ -38,6 +38,7 @@ const memberSetupMessages = new Map();
 const logs = [];
 const gameLobbies = new Map();
 const rpsGames = new Map();
+const battleGames = new Map();
 
 function log(x) {
   const line = '[' + new Date().toISOString() + '] ' + x;
@@ -248,6 +249,31 @@ client.on('interactionCreate', async i => {
         rpsGames.set(key,{host:i.user.id,player:null,channelId:i.channelId});
         return i.update({content:'🪨📄✂️ تم إنشاء مباراة ضد لاعب. اضغط انضمام.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('rps_join').setLabel('انضم للمباراة').setStyle(ButtonStyle.Success))]});
       }
+      if (choice === 'battle') {
+        const channel = i.member?.voice?.channel;
+        if (!channel) return i.update({content:'🎙️ لازم تدخل روم فويس أولاً.',components:[]});
+        const members = [...channel.members.values()].filter(m => !m.user.bot);
+        if (members.length !== 2) return i.update({content:'⚔️ لازم يكون **لاعبين اثنين فقط** في نفس روم الفويس.',components:[]});
+        const key = i.guildId + ':battle';
+        if (battleGames.has(key)) return i.update({content:'⚔️ توجد معركة شغالة بالفعل.',components:[]});
+        const [p1,p2]=members;
+        const song=findSong('GOJO');
+        if (!song) return i.update({content:'❌ ما لقيت أغنية القتال في مجلد songs.',components:[]});
+        try {
+          await playSong(i.member, song, i.guildId);
+        } catch(e) {
+          log('Battle music start error: '+e.stack);
+          return i.update({content:'❌ فشل دخول البوت للروم أو تشغيل أغنية القتال.',components:[]});
+        }
+        const g={guildId:i.guildId,channelId:i.channelId,voiceChannelId:channel.id,players:[p1.id,p2.id],hp:{[p1.id]:100,[p2.id]:100},turn:p1.id,song};
+        battleGames.set(key,g);
+        const row=new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('battle_attack').setLabel('هجوم ⚔️').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('battle_heal').setLabel('استرجاع ❤️').setStyle(ButtonStyle.Success)
+        );
+        return i.update({content:'⚔️ **بدأت معركة اللاعبين!**\\n🎙️ الروم: <#'+channel.id+'>\\n👤 <@'+p1.id+'> ضد <@'+p2.id+'>\\n\\n❤️ كل لاعب يبدأ بـ **100 HP**\\n🎵 البوت دخل الروم وشغّل أغنية القتال.\\n\\n🎯 الدور الآن: <@'+g.turn+'>',components:[row]});
+      }
+
       if (choice === 'mafia') {
         const key = i.guildId + ':mafia';
         let g = gameLobbies.get(key);
@@ -305,6 +331,40 @@ client.on('interactionCreate', async i => {
       return;
     }
 
+    if (i.isButton() && (i.customId === 'battle_attack' || i.customId === 'battle_heal')) {
+      const key=i.guildId+':battle', g=battleGames.get(key);
+      if (!g) return i.reply({content:'❌ لا توجد معركة نشطة.',flags:MessageFlags.Ephemeral});
+      const channel=i.guild.channels.cache.get(g.voiceChannelId);
+      const voiceMember=channel?.members?.get(i.user.id);
+      if (!g.players.includes(i.user.id)) return i.reply({content:'❌ أنت لست من لاعبي المعركة.',flags:MessageFlags.Ephemeral});
+      if (i.user.id!==g.turn) return i.reply({content:'⏳ ليس دورك الآن.',flags:MessageFlags.Ephemeral});
+      if (!voiceMember) return i.reply({content:'🎙️ يجب أن تبقى داخل روم الفويس أثناء المعركة.',flags:MessageFlags.Ephemeral});
+
+      const enemy=g.players.find(id=>id!==i.user.id);
+      if (i.customId==='battle_attack') {
+        const damage=Math.floor(Math.random()*16)+15;
+        g.hp[enemy]=Math.max(0,g.hp[enemy]-damage);
+        if (g.hp[enemy]===0) {
+          stopMusic(i.guildId);
+          battleGames.delete(key);
+          return i.update({content:'🏆 **انتهت المعركة!**\\n⚔️ <@'+i.user.id+'> ضرب **'+damage+'** ضرر.\\n💀 <@'+enemy+'> خسر المعركة.\\n\\n🎵 تم إيقاف أغنية القتال وخروج البوت.',components:[]});
+        }
+        g.turn=enemy;
+        return i.update({content:'⚔️ **معركة اللاعبين**\\n<@'+i.user.id+'> هاجم وألحق **'+damage+'** ضرر!\\n\\n❤️ <@'+i.user.id+'>: **'+g.hp[i.user.id]+' HP**\\n❤️ <@'+enemy+'>: **'+g.hp[enemy]+' HP**\\n\\n🎯 الدور الآن: <@'+g.turn+'>',components:[new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('battle_attack').setLabel('هجوم ⚔️').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('battle_heal').setLabel('استرجاع ❤️').setStyle(ButtonStyle.Success)
+        )]});
+      }
+
+      const heal=Math.floor(Math.random()*11)+10;
+      g.hp[i.user.id]=Math.min(100,g.hp[i.user.id]+heal);
+      g.turn=enemy;
+      return i.update({content:'❤️ **استرجاع!** <@'+i.user.id+'> استعاد **'+heal+' HP**.\\n\\n❤️ <@'+i.user.id+'>: **'+g.hp[i.user.id]+' HP**\\n❤️ <@'+enemy+'>: **'+g.hp[enemy]+' HP**\\n\\n🎯 الدور الآن: <@'+g.turn+'>',components:[new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('battle_attack').setLabel('هجوم ⚔️').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('battle_heal').setLabel('استرجاع ❤️').setStyle(ButtonStyle.Success)
+      )]});
+    }
+
     if (i.isButton() && i.customId === 'mafia_join') {
       const key=i.guildId+':mafia', g=gameLobbies.get(key);
       if (!g) return i.reply({content:'❌ لا توجد غرفة مافيا.',flags:MessageFlags.Ephemeral});
@@ -349,7 +409,8 @@ client.on('interactionCreate', async i => {
       const menu=new StringSelectMenuBuilder().setCustomId('games_menu').setPlaceholder('🎮 اختر لعبة').addOptions(
         {label:'مافيا',description:'4 إلى 12 لاعباً',value:'mafia',emoji:'🔪'},
         {label:'حجر ورقة مقص ضد بوت',description:'العب فوراً ضد البوت',value:'rps_bot',emoji:'🤖'},
-        {label:'حجر ورقة مقص ضد لاعب',description:'أنشئ مباراة وانتظر لاعباً',value:'rps_player',emoji:'👤'}
+        {label:'حجر ورقة مقص ضد لاعب',description:'أنشئ مباراة وانتظر لاعباً',value:'rps_player',emoji:'👤'},
+        {label:'قتال لاعبين في الفويس',description:'لاعبان في نفس الروم والبوت يدخل معكم',value:'battle',emoji:'⚔️'}
       );
       return i.reply({content:'🎮 **قائمة الألعاب**\nاختر اللعبة:',components:[new ActionRowBuilder().addComponents(menu)]});
     }
