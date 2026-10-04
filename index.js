@@ -147,6 +147,31 @@ function startTrack(guildId) {
 }
 
 
+
+function battleDamage() {
+  const attacks = [
+    {damage:10, weight:25},
+    {damage:20, weight:20},
+    {damage:30, weight:12},
+    {damage:40, weight:5},
+    {damage:50, weight:2}
+  ];
+  const total = attacks.reduce((n,a)=>n+a.weight,0);
+  let roll = Math.random()*total;
+  for (const attack of attacks) {
+    roll -= attack.weight;
+    if (roll < 0) return attack.damage;
+  }
+  return 10;
+}
+
+function battleRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('battle_attack').setLabel('هجوم ⚔️').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('battle_heal').setLabel('استرجاع ❤️').setStyle(ButtonStyle.Success)
+  );
+}
+
 async function playVoiceEffect(memberObj, file, guildId) {
   if (!memberObj?.voice?.channel) throw new Error('VOICE_REQUIRED');
 
@@ -445,27 +470,34 @@ client.on('interactionCreate', async i => {
 
       const enemy=g.players.find(id=>id!==i.user.id);
       if (i.customId==='battle_attack') {
-        const damage=Math.floor(Math.random()*16)+15;
+        const damage=battleDamage();
         g.hp[enemy]=Math.max(0,g.hp[enemy]-damage);
+
         if (g.hp[enemy]===0) {
           stopMusic(i.guildId);
           battleGames.delete(key);
-          return i.update({content:'🏆 **انتهت المعركة!**\\n⚔️ <@'+i.user.id+'> ضرب **'+damage+'** ضرر.\\n💀 <@'+enemy+'> خسر المعركة.\\n\\n🎵 تم إيقاف أغنية القتال وخروج البوت.',components:[]});
+          return i.update({
+            content:'🏆 **━━━━━━━━ انتهت المعركة ━━━━━━━━**🏆\\n\\n⚔️ <@'+i.user.id+'> وجّه ضربة بقوة **'+damage+'**!\\n💀 <@'+enemy+'> سقط في المعركة.\\n\\n🎵 تم إيقاف موسيقى القتال.\\n🚪 البوت غادر الروم.\\n\\n🏆 الفائز: <@'+i.user.id+'>',
+            components:[]
+          });
         }
+
         g.turn=enemy;
-        return i.update({content:'⚔️ **معركة اللاعبين**\\n<@'+i.user.id+'> هاجم وألحق **'+damage+'** ضرر!\\n\\n❤️ <@'+i.user.id+'>: **'+g.hp[i.user.id]+' HP**\\n❤️ <@'+enemy+'>: **'+g.hp[enemy]+' HP**\\n\\n🎯 الدور الآن: <@'+g.turn+'>',components:[new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('battle_attack').setLabel('هجوم ⚔️').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId('battle_heal').setLabel('استرجاع ❤️').setStyle(ButtonStyle.Success)
-        )]});
+        return i.update({
+          content:'⚔️ **━━━━━━━━ معركة اللاعبين ━━━━━━━━** ⚔️\\n\\n👤 <@'+i.user.id+'>\\n♥️ الصحة: **'+g.hp[i.user.id]+'**\\n\\n⚔️ الهجوم: **-'+damage+'**\\n💥 الضرر يتراوح من **10 إلى 50**\\n📉 الضربات الأقوى احتمالها أقل.\\n\\n👤 <@'+enemy+'>\\n♥️ الصحة: **'+g.hp[enemy]+'**\\n\\n━━━━━━━━━━━━━━━━━━━━\\n🎯 الدور الآن: <@'+g.turn+'>\\n\\n⚔️ **هجوم** = ضرر عشوائي\\n❤️ **استرجاع** = +10 إلى +20 HP\\n📌 الحد الأقصى للصحة: **100**',
+          components:[battleRow()]
+        });
       }
 
       const heal=Math.floor(Math.random()*11)+10;
+      const before=g.hp[i.user.id];
       g.hp[i.user.id]=Math.min(100,g.hp[i.user.id]+heal);
+      const actualHeal=g.hp[i.user.id]-before;
       g.turn=enemy;
-      return i.update({content:'❤️ **استرجاع!** <@'+i.user.id+'> استعاد **'+heal+' HP**.\\n\\n❤️ <@'+i.user.id+'>: **'+g.hp[i.user.id]+' HP**\\n❤️ <@'+enemy+'>: **'+g.hp[enemy]+' HP**\\n\\n🎯 الدور الآن: <@'+g.turn+'>',components:[new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('battle_attack').setLabel('هجوم ⚔️').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('battle_heal').setLabel('استرجاع ❤️').setStyle(ButtonStyle.Success)
-      )]});
+      return i.update({
+        content:'❤️ **━━━━━━━━ استرجاع ━━━━━━━━** ❤️\\n\\n👤 <@'+i.user.id+'>\\n♥️ الصحة: **'+before+' → '+g.hp[i.user.id]+'**\\n✨ استعاد **+'+actualHeal+' HP**\\n\\n👤 <@'+enemy+'>\\n♥️ الصحة: **'+g.hp[enemy]+'**\\n\\n━━━━━━━━━━━━━━━━━━━━\\n🎯 الدور الآن: <@'+g.turn+'>\\n\\n⚔️ الهجوم: **10–50**\\n❤️ الاسترجاع: **10–20**\\n🏁 الهدف: خفّض صحة خصمك إلى **0**',
+        components:[battleRow()]
+      });
     }
 
     if (i.isButton() && i.customId === 'mafia_join') {
