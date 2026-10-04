@@ -1066,6 +1066,19 @@ if (!discordToken) {
 
 addBotLog(`DISCORD_TOKEN loaded successfully (length: ${discordToken.length})`);
 
+
+/* DISCORD_CONNECTION_WATCHDOG */
+setInterval(() => {
+    try {
+        if (!client.isReady()) {
+            console.warn('Discord connection is not ready. Waiting for discord.js automatic reconnect...');
+        }
+    } catch (error) {
+        console.error('Discord watchdog error:', error);
+    }
+}, 60000).unref();
+/* END DISCORD_CONNECTION_WATCHDOG */
+
 client.login(discordToken).catch(error => {
     addBotLog(`Discord login failed: ${error.message}`);
     process.exit(1);
