@@ -293,6 +293,7 @@ client.once('clientReady', async () => {
     {name:'ping',description:'عرض سرعة البوت'},
     {name:'play_music',description:'اختيار وتشغيل أغنية'},
     {name:'music_stop',description:'إيقاف الموسيقى والخروج'},
+    {name:'music_repeat',description:'تشغيل أو إيقاف تكرار الأغنية'},
     {name:'games',description:'فتح قائمة الألعاب'},
     {name:'effects',description:'تشغيل مؤثر صوتي داخل الفويس'},
     {name:'serverinfo',description:'معلومات السيرفر'},
@@ -349,6 +350,22 @@ client.on('interactionCreate', async i => {
       stopMusic(i.guildId);
       return i.update({content:'⏹️ تم إيقاف الموسيقى وخروج البوت.',components:[]});
     }
+
+    if (i.isButton() && i.customId === 'music_repeat_btn') {
+      const s = musicStates.get(i.guildId);
+      if (!s) return i.reply({content:'❌ ما فيه أغنية شغالة.',flags:MessageFlags.Ephemeral});
+      s.repeat = !s.repeat;
+      return i.update({
+        content:'🎵 **'+songLabel(s.current)+'**\\n'+(s.repeat?'🔁 التكرار: **مفعّل**':'➡️ التكرار: **متوقف**'),
+        components:[
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('music_repeat_btn').setLabel(s.repeat?'إلغاء التكرار':'تكرار 🔁').setStyle(s.repeat?ButtonStyle.Success:ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('music_stop_btn').setLabel('إيقاف').setEmoji('⏹️').setStyle(ButtonStyle.Danger)
+          )
+        ]
+      });
+    }
+
 
 
     if (i.isStringSelectMenu() && i.customId === 'effects_menu') {
@@ -604,6 +621,7 @@ client.on('interactionCreate', async i => {
       const menu = new StringSelectMenuBuilder().setCustomId('music_pick').setPlaceholder('🎵 اختر أغنية').addOptions(songs.slice(0,25).map((f,n)=>({label:songLabel(f).slice(0,100),value:String(n)})));
       const row = new ActionRowBuilder().addComponents(menu);
       const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('music_repeat_btn').setLabel('تكرار 🔁').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('music_stop_btn').setLabel('إيقاف').setEmoji('⏹️').setStyle(ButtonStyle.Danger)
       );
       return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
@@ -611,6 +629,13 @@ client.on('interactionCreate', async i => {
 
     if (c === 'music_stop') {
       return i.reply(stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى.' : 'ما فيه موسيقى شغالة.');
+    }
+
+    if (c === 'music_repeat') {
+      const s = musicStates.get(i.guildId);
+      if (!s) return i.reply({content:'❌ ما فيه أغنية شغالة.',flags:MessageFlags.Ephemeral});
+      s.repeat = !s.repeat;
+      return i.reply((s.repeat ? '🔁 التكرار **مفعّل**' : '➡️ التكرار **متوقف**')+' للأغنية الحالية.');
     }
 
     if (c === 'serverinfo') return i.reply(`🏠 **${i.guild.name}**\n👥 الأعضاء: **${i.guild.memberCount}**\n📝 الرومات: **${i.guild.channels.cache.size}**\n🎭 الرتب: **${i.guild.roles.cache.size}**`);
