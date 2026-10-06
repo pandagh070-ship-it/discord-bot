@@ -10,10 +10,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Wake Render service
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          echo "Waking Render service..."
-          curl --fail --silent --show-error --max-time 60 \
+          set -e
+          SERVICE_ID="srv-db0g77jncjis739cnb20"
+          URL="https://discord-bot-5a4b.onrender.com/"
+          API="https://api.render.com/v1"
+
+          echo "Checking Render service..."
+          SERVICE="$(curl -sS --fail \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "$API/services/$SERVICE_ID")"
+
+          SUSPENDED="$(echo "$SERVICE" | jq -r '.suspended // false')"
+          if [ "$SUSPENDED" = "true" ]; then
+            echo "Service is suspended. Resuming..."
+            curl -sS --fail -X POST \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              -H "Accept: application/json" \
+              "$API/services/$SERVICE_ID/resume"
+          fi
+
+          echo "Pinging Render app..."
+          if curl -sS --fail --max-time 60 \
             -H "User-Agent: github-actions-render-wake" \
-            "https://discord-bot-5a4b.onrender.com/" \
-            -o /dev/null
-          echo "Render responded successfully."
+            "$URL" -o /dev/null; then
+            echo "Render responded successfully."
+            exit 0
+          fi
+
+          echo "First wake attempt failed. Waiting 30 seconds and retrying..."
+          sleep 30
+
+          if curl -sS --fail --max-time 60 \
+            -H "User-Agent: github-actions-render-wake" \
+            "$URL" -o /dev/null; then
+            echo "Render responded successfully after retry."
+            exit 0
+          fi
+
+          echo "Render is still unreachable. Triggering a deploy as fallback..."
+          curl -sS --fail -X POST \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            "$API/services/$SERVICE_ID/deploys" \
+            -d '{"clearCache":"do_not_clear","deployMode":"build_and_deploy"}'
+
+          echo "Fallback deploy triggered."
