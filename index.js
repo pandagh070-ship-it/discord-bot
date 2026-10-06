@@ -373,7 +373,8 @@ client.once('clientReady', async () => {
     {name:'help',description:'عرض أوامر البوت'},
     {name:'coinflip',description:'رمي عملة'},
     {name:'roll',description:'رقم عشوائي',options:[{name:'max',description:'الحد الأعلى',type:4,required:false,min_value:2,max_value:1000}]},
-    {name:'botinfo',description:'معلومات البوت'}
+    {name:'botinfo',description:'معلومات البوت'},
+    {name:'giveaway',description:'إرسال Giveaway في روم تختاره',options:[{name:'channel',description:'الروم النصي',type:7,required:true,channel_types:[0]},{name:'message',description:'نص الـ Giveaway',type:3,required:true,max_length:4000}]}
   ];
 
   try {
@@ -627,6 +628,19 @@ client.on('interactionCreate', async i => {
     if(c==='coinflip')return i.reply(Math.random()<.5?'🪙 **صورة**':'🪙 **كتابة**');
     if(c==='roll'){const max=Math.min(1000,Math.max(2,i.options.getInteger('max')||100));return i.reply('🎲 النتيجة: **'+(Math.floor(Math.random()*max)+1)+' / '+max+'**');}
     if(c==='botinfo')return i.reply('🤖 **معلومات البوت**\\n🏓 Ping: **'+Math.round(client.ws.ping)+'ms**\\n🎵 أغاني: **'+getSongs().length+'**\\n🔊 مؤثرات: **'+getEffectFiles().length+'**\\n🎮 ألعاب: **4**');
+    if (c === 'giveaway') {
+      if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
+      const channel=i.options.getChannel('channel',true);
+      const text=i.options.getString('message',true).trim();
+      if (!channel.isTextBased?.()) return i.reply({content:'❌ اختر روم نصي.',flags:MessageFlags.Ephemeral});
+      const me=i.guild.members.me;
+      const cp=channel.permissionsFor(me);
+      if (!cp?.has(PermissionsBitField.Flags.SendMessages) || !cp?.has(PermissionsBitField.Flags.EmbedLinks)) return i.reply({content:'❌ البوت يحتاج Send Messages و Embed Links في الروم المحدد.',flags:MessageFlags.Ephemeral});
+      const embed=new EmbedBuilder().setTitle('🎁 Giveaway').setDescription(text).setFooter({text:'🎁 Giveaway'}).setTimestamp();
+      await channel.send({embeds:[embed]});
+      return i.reply({content:'✅ تم إرسال Giveaway في '+channel.toString()+' 🎁',flags:MessageFlags.Ephemeral});
+    }
+
     if(c==='help')return i.reply('🤖 **الأوامر**\\n\\n🎮 `/games`\\n🎵 `/play_music`\\n🔊 `/effects`\\n🏓 `/ping`\\n🎲 `/roll`\\n🪙 `/coinflip`\\n⚙️ `/botinfo`\\n🏠 `/serverinfo`\\n👤 `/userinfo` `/avatar`\\n🛡️ `/clear` `/slowmode` `/chat_lock` `/chat_unlock` `/kick` `/ban`');
 
 
