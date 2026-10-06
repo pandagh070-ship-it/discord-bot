@@ -1,0 +1,19 @@
+name: Keep Render Bot Awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake Render service
+        run: |
+          echo "Waking Render service..."
+          curl --fail --silent --show-error --max-time 60 \
+            -H "User-Agent: github-actions-render-wake" \
+            "https://discord-bot-5a4b.onrender.com/" \
+            -o /dev/null
+          echo "Render responded successfully."
