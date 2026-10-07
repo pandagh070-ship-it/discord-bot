@@ -334,6 +334,9 @@ async function playSong(memberObj, file, guildId) {
 http.createServer((req,res) => {
   if (req.url === '/health') {
     const ok = client.isReady();
+    if (!ok && process.env.DISCORD_TOKEN?.trim()) {
+      scheduleDiscordReconnect('health check found Discord disconnected', 0);
+    }
     res.writeHead(ok ? 200 : 503, {'Content-Type':'application/json'});
     return res.end(JSON.stringify({ok, discord: ok ? 'connected':'disconnected', songs:getSongs().length}));
   }
