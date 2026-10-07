@@ -806,40 +806,86 @@ client.on('interactionCreate', async i => {
 client.on('error', e=>log('Discord error: '+e.message));
 
 let reconnecting = false;
+let reconnectTimer = null;
+let loginFailureCount = 0;
+
+function scheduleDiscordReconnect(reason, delay = 10000) {
+  if (reconnecting || reconnectTimer) return;
+  log('Discord reconnect scheduled: ' + reason + ' in ' + delay + 'ms');
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    await reconnectDiscord(reason);
+  }, delay);
+}
+
 async function reconnectDiscord(reason) {
   if (reconnecting) return;
+  const token = process.env.DISCORD_TOKEN?.trim();
+  if (!token) {
+    log('Discord reconnect skipped: DISCORD_TOKEN missing');
+    return;
+  }
+
   reconnecting = true;
   log('Discord reconnect requested: ' + reason);
+
   try {
-    client.destroy();
-    await new Promise(r => setTimeout(r, 3000));
-    await client.login(process.env.DISCORD_TOKEN?.trim());
+    if (client.isReady()) {
+      reconnecting = false;
+      return;
+    }
+
+    await client.login(token);
+    loginFailureCount = 0;
     log('Discord reconnect successful');
   } catch (e) {
-    log('Discord reconnect failed: ' + e.message);
-  } finally {
+    loginFailureCount++;
+    const delay = Math.min(60000, 5000 * Math.max(1, loginFailureCount));
+    log('Discord reconnect failed #' + loginFailureCount + ': ' + e.message);
     reconnecting = false;
+    scheduleDiscordReconnect('retry after login failure', delay);
+    return;
   }
+
+  reconnecting = false;
 }
 
 client.on('shardDisconnect', (event, shardId) => {
   log('Discord shard disconnected (' + shardId + '): ' + (event?.code ?? 'unknown'));
-  setTimeout(() => reconnectDiscord('shardDisconnect'), 5000);
+  scheduleDiscordReconnect('shardDisconnect', 10000);
 });
+
 client.on('shardError', (error, shardId) => {
   log('Discord shard error (' + shardId + '): ' + error.message);
-  setTimeout(() => reconnectDiscord('shardError'), 5000);
+  scheduleDiscordReconnect('shardError', 10000);
 });
-client.on('shardReconnecting', shardId => log('Discord shard reconnecting: ' + shardId));
-client.on('shardResume', (shardId, replayed) => log('Discord shard resumed: ' + shardId + ' replayed=' + replayed));
+
+client.on('shardReconnecting', shardId => {
+  log('Discord shard reconnecting: ' + shardId);
+});
+
+client.on('shardResume', (shardId, replayed) => {
+  loginFailureCount = 0;
+  log('Discord shard resumed: ' + shardId + ' replayed=' + replayed);
+});
+
+client.on('invalidated', () => {
+  log('Discord session invalidated. Waiting for process restart/login.');
+});
 
 setInterval(() => {
-  if (!client.isReady() && process.env.DISCORD_TOKEN?.trim()) {
-    reconnectDiscord('client is not ready');
-  }
+  if (!process.env.DISCORD_TOKEN?.trim()) return;
+  if (!client.isReady()) scheduleDiscordReconnect('client is not ready', 5000);
 }, 30000);
 
 const token=process.env.DISCORD_TOKEN?.trim();
 if(!token){log('DISCORD_TOKEN missing');process.exit(1);}
 log('DISCORD_TOKEN loaded');
-client.login(token).catch(e=>{log('Login failed: '+e.message);process.exit(1);});
+
+client.login(token).then(() => {
+  loginFailureCount = 0;
+  log('Initial Discord login successful');
+}).catch(e => {
+  log('Initial Discord login failed: ' + e.message);
+  scheduleDiscordReconnect('initial login failure', 5000);
+});
