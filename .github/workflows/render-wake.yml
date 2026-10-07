@@ -37,7 +37,7 @@ jobs:
           if curl -sS --fail --max-time 60 \
             -H "User-Agent: github-actions-render-wake" \
             "$URL" -o /dev/null; then
-            echo "Render responded successfully."
+            echo "Discord bot health is OK."
             exit 0
           fi
 
@@ -47,7 +47,7 @@ jobs:
           if curl -sS --fail --max-time 60 \
             -H "User-Agent: github-actions-render-wake" \
             "$URL" -o /dev/null; then
-            echo "Render responded successfully after retry."
+            echo "Discord bot health is OK after retry."
             exit 0
           fi
 
