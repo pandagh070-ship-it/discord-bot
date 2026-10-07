@@ -16,8 +16,8 @@ const {
 
 const ffmpegPath = require('ffmpeg-static');
 
-process.on('uncaughtException', e => console.error('UNCAUGHT:', e));
-process.on('unhandledRejection', e => console.error('UNHANDLED:', e));
+process.on('uncaughtException', e => { console.error('UNCAUGHT:', e); log('UNCAUGHT: ' + (e?.stack || e)); setTimeout(() => process.exit(1), 2000); });
+process.on('unhandledRejection', e => { console.error('UNHANDLED:', e); log('UNHANDLED: ' + (e?.stack || e)); });
 
 const client = new Client({
   intents: [
