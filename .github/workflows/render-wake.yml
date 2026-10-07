@@ -2,7 +2,7 @@ name: Keep Render Bot Awake
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
         run: |
           set -e
           SERVICE_ID="srv-db0g77jncjis739cnb20"
-          URL="https://discord-bot-5a4b.onrender.com/"
+          URL="https://discord-bot-5a4b.onrender.com/health"
           API="https://api.render.com/v1"
 
           echo "Checking Render service..."
@@ -33,7 +33,7 @@ jobs:
               "$API/services/$SERVICE_ID/resume"
           fi
 
-          echo "Pinging Render app..."
+          echo "Checking Discord bot health..."
           if curl -sS --fail --max-time 60 \
             -H "User-Agent: github-actions-render-wake" \
             "$URL" -o /dev/null; then
