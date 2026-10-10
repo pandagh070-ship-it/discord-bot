@@ -781,12 +781,28 @@ client.on('interactionCreate', async i => {
       const target = i.options.getUser('العضو', true);
       const speech = i.options.getString('الكلام', true).trim();
       if (!speech) return i.reply({content:'❌ اكتب الكلام الذي تريد نشره.',flags:MessageFlags.Ephemeral});
+      const me = i.guild.members.me;
+      const channelPerms = i.channel.permissionsFor(me);
+      if (!channelPerms?.has(PermissionsBitField.Flags.ManageWebhooks)) {
+        return i.reply({content:'❌ البوت يحتاج صلاحية Manage Webhooks في هذا الروم ليعرض اسم العضو وصورته.',flags:MessageFlags.Ephemeral});
+      }
+      const targetMember = await i.guild.members.fetch(target.id).catch(() => null);
+      const displayName = targetMember?.displayName || target.username;
+      const avatarURL = target.displayAvatarURL({extension:'png', size:256});
       const safeText = speech.replace(/@everyone/g, '@​everyone').replace(/@here/g, '@​here');
-      await i.channel.send({
-        content:'🗣️ **رسالة بالنيابة عن <@'+target.id+'>**\\n> '+safeText.replace(/\\n/g, '\\n> ')+'\\n\\n*نُشرت بواسطة <@'+i.user.id+'> عبر أمر البوت، وليست رسالة أرسلها العضو بنفسه.*',
-        allowedMentions:{parse:[]}
-      });
-      return i.reply({content:'✅ تم نشر النص بوضوح على أنه رسالة بالنيابة عن العضو، وليس كلاماً أرسله بنفسه.',flags:MessageFlags.Ephemeral});
+      let webhook;
+      try {
+        webhook = await i.channel.createWebhook({name:'رسائل بالنيابة', reason:'نشر رسالة موضّحة بطلب من مشرف'});
+        await webhook.send({
+          content:safeText+'\\n\\nⓘ نُشرت عبر البوت بطلب من '+i.user.tag+'، وليست رسالة كتبها العضو بنفسه.',
+          username:displayName,
+          avatarURL,
+          allowedMentions:{parse:[]}
+        });
+      } finally {
+        if (webhook) await webhook.delete('حذف webhook المؤقت بعد النشر').catch(e => log('Temporary webhook cleanup failed: '+e.message));
+      }
+      return i.reply({content:'✅ نُشر النص باسم العضو وصورته، مع توضيح أنه نُشر عبر البوت.',flags:MessageFlags.Ephemeral});
     }
 
     if (c === 'نقل_اعضاء') {
