@@ -72,6 +72,15 @@ function getEffectFiles() {
     .sort((a,b) => a.localeCompare(b));
 }
 
+function getBombFiles() {
+  const bombDir = path.join(__dirname, 'bomb');
+  if (!fs.existsSync(bombDir)) return [];
+  return fs.readdirSync(bombDir)
+    .filter(f => /\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
+    .map(f => path.join('bomb', f))
+    .sort((a,b) => a.localeCompare(b));
+}
+
 
 function songLabel(file) {
   return path.basename(file).replace(/\.[^.]+$/, '');
@@ -656,8 +665,8 @@ client.on('interactionCreate', async i => {
       if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
       const channel = i.options.getChannel('channel', true);
       if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
-      const effects = getEffectFiles();
-      if (!effects.length) return i.reply({content:'📭 لا توجد مؤثرات داخل مجلد effects. أضف ملف الصوت هناك أولًا.',flags:MessageFlags.Ephemeral});
+      const effects = getBombFiles();
+      if (!effects.length) return i.reply({content:'📭 مجلد bomb فارغ. ارفع ملف القنبلة إلى مجلد bomb في GitHub أولًا.',flags:MessageFlags.Ephemeral});
       const file = effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0];
       const cp = channel.permissionsFor(i.guild.members.me);
       if (!cp?.has(PermissionsBitField.Flags.Connect) || !cp?.has(PermissionsBitField.Flags.Speak)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Connect و Speak في الروم المختار.',flags:MessageFlags.Ephemeral});
