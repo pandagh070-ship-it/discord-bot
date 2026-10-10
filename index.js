@@ -74,7 +74,7 @@ function getEffectFiles() {
 }
 
 function getBombFiles() {
-  const bombDir = path.join(__dirname, 'نوع_القنبلة');
+  const bombDir = path.join(__dirname, 'bomb');
   if (!fs.existsSync(bombDir)) return [];
   return fs.readdirSync(bombDir)
     .filter(f => /\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
