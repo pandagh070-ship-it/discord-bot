@@ -492,6 +492,7 @@ client.once('clientReady', async () => {
     {name:'ايقاف_الموسيقى',description:'إيقاف الموسيقى والخروج'},
     {name:'العاب',description:'فتح قائمة الألعاب'},
     {name:'نقل_اعضاء',description:'نقل جميع الأعضاء من روم صوتي إلى روم آخر',options:[{name:'المصدر',description:'الروم الصوتي الذي تريد نقل الأعضاء منه',type:7,required:true,channel_types:[2,13]},{name:'الوجهة',description:'الروم الصوتي الذي تريد نقل الأعضاء إليه',type:7,required:true,channel_types:[2,13]}]},
+    {name:'تكلم',description:'نشر نص واضح بالنيابة عن عضو',options:[{name:'العضو',description:'اختر العضو',type:6,required:true},{name:'الكلام',description:'النص الذي تريد نشره',type:3,required:true,max_length:1500}]},
     {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'نوع_القنبلة',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'}]},{name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
     {name:'اضافات',description:'اختيار وتشغيل إضافة مؤقتة',options:[{name:'اضافة',description:'اختر الإضافة',type:3,required:true,choices:[{name:'اتحاد سوفيتي 🫡',value:'soviet_union'}]}]},
     {name:'طرد_عضو',description:'طرد عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
@@ -771,6 +772,21 @@ client.on('interactionCreate', async i => {
         };
         return i.editReply(messages[e.message] || '❌ فشلت الإضافة. تحقق من صلاحيات البوت وملف الأغنية، ثم راجع سجلات Render.');
       }
+    }
+
+    if (c === 'تكلم') {
+      if (!perms(i, PermissionsBitField.Flags.ManageMessages)) {
+        return i.reply({content:'❌ تحتاج صلاحية إدارة الرسائل لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
+      }
+      const target = i.options.getUser('العضو', true);
+      const speech = i.options.getString('الكلام', true).trim();
+      if (!speech) return i.reply({content:'❌ اكتب الكلام الذي تريد نشره.',flags:MessageFlags.Ephemeral});
+      const safeText = speech.replace(/@everyone/g, '@​everyone').replace(/@here/g, '@​here');
+      await i.channel.send({
+        content:'🗣️ **رسالة بالنيابة عن <@'+target.id+'>**\\n> '+safeText.replace(/\\n/g, '\\n> ')+'\\n\\n*نُشرت بواسطة <@'+i.user.id+'> عبر أمر البوت، وليست رسالة أرسلها العضو بنفسه.*',
+        allowedMentions:{parse:[]}
+      });
+      return i.reply({content:'✅ تم نشر النص بوضوح على أنه رسالة بالنيابة عن العضو، وليس كلاماً أرسله بنفسه.',flags:MessageFlags.Ephemeral});
     }
 
     if (c === 'نقل_اعضاء') {
