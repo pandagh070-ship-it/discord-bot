@@ -487,6 +487,7 @@ client.once('clientReady', async () => {
   log('Bot online as ' + client.user.tag);
 
   const commands = [
+    {name:'شغل',description:'إعادة تشغيل بوت Render (لرتبة Start bot فقط)'},
     {name:'سرعة',description:'عرض سرعة البوت'},
     {name:'تشغيل_اغنية',description:'اختيار وتشغيل أغنية'},
     {name:'ايقاف_الموسيقى',description:'إيقاف الموسيقى والخروج'},
@@ -734,6 +735,31 @@ client.on('interactionCreate', async i => {
 
     if (!i.isChatInputCommand()) return;
     const c = i.commandName;
+
+    if (c === 'شغل') {
+      const hasStartRole = i.member?.roles?.cache?.some(role => role.name === 'Start bot');
+      if (!hasStartRole) return i.reply({content:'⛔ هذا الأمر متاح لرتبة **Start bot** فقط.',flags:MessageFlags.Ephemeral});
+      const apiKey = process.env.RENDER_API_KEY?.trim();
+      const serviceId = process.env.RENDER_SERVICE_ID?.trim() || 'srv-db0g77jncjis739cnb20';
+      if (!apiKey) return i.reply({content:'⚠️ أمر التشغيل يحتاج إعداد RENDER_API_KEY في Environment على Render أولاً.',flags:MessageFlags.Ephemeral});
+      await i.reply({content:'🔄 طلبت إعادة تشغيل البوت على Render. قد ينقطع الاتصال لدقيقة أو دقيقتين.',flags:MessageFlags.Ephemeral});
+      try {
+        const response = await fetch('https://api.render.com/v1/services/' + encodeURIComponent(serviceId) + '/restart', {
+          method:'POST',
+          headers:{Authorization:'Bearer ' + apiKey, Accept:'application/json'}
+        });
+        if (!response.ok) {
+          const detail = (await response.text().catch(() => '')).slice(0,300);
+          log('Render restart request failed: HTTP ' + response.status + ' ' + detail);
+          return i.followUp({content:'❌ Render رفض طلب إعادة التشغيل (HTTP ' + response.status + '). تأكد من صلاحية مفتاح Render.',flags:MessageFlags.Ephemeral});
+        }
+        log('Render restart requested by ' + i.user.tag + ' (' + i.user.id + ')');
+        return i.followUp({content:'✅ Render قبل طلب إعادة التشغيل. انتظر حتى يعود البوت للعمل.',flags:MessageFlags.Ephemeral});
+      } catch (e) {
+        log('Render restart request error: ' + e.message);
+        return i.followUp({content:'❌ تعذّر الاتصال بـ Render: ' + e.message,flags:MessageFlags.Ephemeral});
+      }
+    }
 
     if(c==='سرعة')return i.reply('🏓 Pong! '+Math.round(client.ws.ping)+'ms');
     if (c === 'سحب_جائزة') {
