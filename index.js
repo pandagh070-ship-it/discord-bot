@@ -724,15 +724,6 @@ client.on('interactionCreate', async i => {
       }
     }
 
-    + disconnected + ', failed=' + failed);
-        });
-        return i.editReply('🔊 بدأ الصوت في '+channel.toString()+' لمدة 30 ثانية. بعدها سيحاول البوت عمل Server Mute وفصل الأعضاء الموجودين في الروم الصوتي، ثم يخرج. لن يطردهم من السيرفر.');
-      } catch (e) {
-        log('Qasf command error: ' + e.stack);
-        return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Mute Members و Move Members ومن سلامة ملف الصوت.');
-      }
-    }
-
     if (c === 'effects') {
       const m = member(i);
       if (!m?.voice?.channel) {
