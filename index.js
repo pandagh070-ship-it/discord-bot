@@ -390,7 +390,7 @@ client.once('clientReady', async () => {
     {name:'music_repeat',description:'تشغيل أو إيقاف تكرار الأغنية'},
     {name:'games',description:'فتح قائمة الألعاب'},
     {name:'effects',description:'تشغيل مؤثر صوتي داخل الفويس'},
-    {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'bomb',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'القنبلة العادية (30 ثانية)',value:'normal'},{name:'Bomb Speed (ثانيتان)',value:'speed'}]},{name:'channel',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
+    {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'bomb',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'}]},{name:'channel',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
     {name:'serverinfo',description:'معلومات السيرفر'},
     {name:'userinfo',description:'معلومات عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
     {name:'avatar',description:'عرض صورة عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
@@ -722,7 +722,7 @@ client.on('interactionCreate', async i => {
           }
           log('Qasf (' + bombType + ') completed in ' + voiceChannel.id + ': muted=' + muted + ', disconnected=' + disconnected + ', failed=' + failed);
         });
-        return i.editReply('🔊 بدأ **'+(speedMode ? 'Bomb Speed' : 'القنبلة العادية')+'** في '+channel.toString()+'. بعد '+(speedMode ? 'ثانيتين' : '30 ثانية')+' سيحاول البوت عمل Server Mute وفصل الأعضاء البشر الموجودين في الروم الصوتي. لن يطردهم من السيرفر.');
+        return i.editReply('🔊 بدأ **'+(speedMode ? 'قنبله خاطفه 💣' : 'قنبله نوويه 💣')+'** في '+channel.toString()+'. بعد '+(speedMode ? 'ثانيتين' : '30 ثانية')+' سيحاول البوت عمل Server Mute وفصل الأعضاء البشر الموجودين في الروم الصوتي. لن يطردهم من السيرفر.');
       } catch (e) {
         log('Qasf command error: ' + e.stack);
         return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Mute Members و Move Members ومن سلامة ملف الصوت.');
