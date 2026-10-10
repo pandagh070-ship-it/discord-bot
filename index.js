@@ -245,7 +245,7 @@ function battleRow() {
   );
 }
 
-async function playVoiceEffect(memberObj, file, guildId, durationMs = 0) {
+async function playVoiceEffect(memberObj, file, guildId, durationMs = 0, onDurationEnd = null) {
   if (!memberObj?.voice?.channel) throw new Error('VOICE_REQUIRED');
 
   const old = effectStates.get(guildId);
@@ -311,8 +311,22 @@ async function playVoiceEffect(memberObj, file, guildId, durationMs = 0) {
     effectStates.delete(guildId);
     log('Effect finished, left voice in ' + guildId);
   };
-  player.once(AudioPlayerStatus.Idle, cleanupEffect);
-  if (durationMs > 0) state.timer = setTimeout(cleanupEffect, durationMs);
+  player.once(AudioPlayerStatus.Idle, () => {
+    // For timed effects, keep the bot connected until the requested duration ends.
+    if (durationMs <= 0) cleanupEffect();
+  });
+  if (durationMs > 0) {
+    state.timer = setTimeout(async () => {
+      if (effectStates.get(guildId) !== state) return;
+      try {
+        if (typeof onDurationEnd === 'function') await onDurationEnd(channel);
+      } catch (e) {
+        log('Timed effect completion action error: ' + (e?.stack || e));
+      } finally {
+        cleanupEffect();
+      }
+    }, durationMs);
+  }
 }
 
 async function playSong(memberObj, file, guildId) {
@@ -669,10 +683,43 @@ client.on('interactionCreate', async i => {
       if (!effects.length) return i.reply({content:'📭 مجلد bomb فارغ. ارفع ملف القنبلة إلى مجلد bomb في GitHub أولًا.',flags:MessageFlags.Ephemeral});
       const file = effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0];
       const cp = channel.permissionsFor(i.guild.members.me);
+      const needed = [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak, PermissionsBitField.Flags.MuteMembers, PermissionsBitField.Flags.MoveMembers];
       if (!cp?.has(PermissionsBitField.Flags.Connect) || !cp?.has(PermissionsBitField.Flags.Speak)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Connect و Speak في الروم المختار.',flags:MessageFlags.Ephemeral});
+      if (!cp?.has(PermissionsBitField.Flags.MuteMembers) || !cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ لإكمال الأمر، امنح البوت صلاحيتَي Mute Members و Move Members أيضًا.',flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
-      try { await playVoiceEffect({voice:{channel}}, file, i.guildId, 30000); return i.editReply('🔊 بدأ المؤثر في '+channel.toString()+' لمدة أقصاها 30 ثانية، ثم سيخرج البوت تلقائيًا. لم يتم كتم أو طرد أي عضو.'); }
-      catch (e) { log('Qasf command error: ' + e.stack); return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak ومن سلامة ملف الصوت.'); }
+      try {
+        await playVoiceEffect({voice:{channel}}, file, i.guildId, 30000, async (voiceChannel) => {
+          let muted = 0, disconnected = 0, failed = 0;
+          const targets = [...voiceChannel.members.values()].filter(m => m.id !== client.user.id && !m.user.bot);
+          for (const target of targets) {
+            try {
+              if (!target.voice.serverMute) {
+                await target.voice.setMute(true, 'Timed /قصف voice-room action');
+              }
+              muted++;
+            } catch (e) {
+              failed++;
+              log('Qasf mute failed for ' + target.id + ': ' + e.message);
+            }
+          }
+          for (const target of targets) {
+            try {
+              if (target.voice.channelId === voiceChannel.id) {
+                await target.voice.disconnect('Timed /قصف voice-room action');
+                disconnected++;
+              }
+            } catch (e) {
+              failed++;
+              log('Qasf disconnect failed for ' + target.id + ': ' + e.message);
+            }
+          }
+          log('Qasf completed in ' + voiceChannel.id + ': muted=' + muted + ', disconnected=' + disconnected + ', failed=' + failed);
+        });
+        return i.editReply('🔊 بدأ الصوت في '+channel.toString()+' لمدة 30 ثانية. بعدها سيحاول البوت عمل Server Mute وفصل الأعضاء الموجودين في الروم الصوتي، ثم يخرج. لن يطردهم من السيرفر.');
+      } catch (e) {
+        log('Qasf command error: ' + e.stack);
+        return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Mute Members و Move Members ومن سلامة ملف الصوت.');
+      }
     }
 
     if (c === 'effects') {
