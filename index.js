@@ -74,11 +74,11 @@ function getEffectFiles() {
 }
 
 function getBombFiles() {
-  const bombDir = path.join(__dirname, 'bomb');
+  const bombDir = path.join(__dirname, 'نوع_القنبلة');
   if (!fs.existsSync(bombDir)) return [];
   return fs.readdirSync(bombDir)
     .filter(f => /\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
-    .map(f => path.join('bomb', f))
+    .map(f => path.join('نوع_القنبلة', f))
     .sort((a,b) => a.localeCompare(b));
 }
 
@@ -487,25 +487,26 @@ client.once('clientReady', async () => {
   log('Bot online as ' + client.user.tag);
 
   const commands = [
-    {name:'ping',description:'عرض سرعة البوت'},
-    {name:'play_music',description:'اختيار وتشغيل أغنية'},
-    {name:'music_stop',description:'إيقاف الموسيقى والخروج'},
-    {name:'games',description:'فتح قائمة الألعاب'},
-    {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'bomb',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'}]},{name:'channel',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
+    {name:'سرعة',description:'عرض سرعة البوت'},
+    {name:'تشغيل_اغنية',description:'اختيار وتشغيل أغنية'},
+    {name:'ايقاف_الموسيقى',description:'إيقاف الموسيقى والخروج'},
+    {name:'العاب',description:'فتح قائمة الألعاب'},
+    {name:'نقل_اعضاء',description:'نقل جميع الأعضاء من روم صوتي إلى روم آخر',options:[{name:'المصدر',description:'الروم الصوتي الذي تريد نقل الأعضاء منه',type:7,required:true,channel_types:[2,13]},{name:'الوجهة',description:'الروم الصوتي الذي تريد نقل الأعضاء إليه',type:7,required:true,channel_types:[2,13]}]},
+    {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'نوع_القنبلة',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'}]},{name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
     {name:'اضافات',description:'اختيار وتشغيل إضافة مؤقتة',options:[{name:'اضافة',description:'اختر الإضافة',type:3,required:true,choices:[{name:'اتحاد سوفيتي 🫡',value:'soviet_union'}]}]},
-    {name:'kick',description:'طرد عضو',options:[{name:'user',description:'العضو',type:6,required:true}]},
-    {name:'ban',description:'حظر عضو',options:[{name:'user',description:'العضو',type:6,required:true}]},
-    {name:'clear',description:'حذف رسائل',options:[{name:'amount',description:'1-100',type:4,required:true,min_value:1,max_value:100}]},
-    {name:'slowmode',description:'تغيير Slowmode',options:[{name:'seconds',description:'0-21600',type:4,required:true,min_value:0,max_value:21600}]},
-    {name:'chat_lock',description:'قفل الدردشة',options:[{name:'reason',description:'السبب',type:3,required:false}]},
-    {name:'chat_unlock',description:'فتح الدردشة'},
-    {name:'setup_chat',description:'تذكير تفاعل كل 5 ساعات'},
-    {name:'stop_chat',description:'إيقاف تذكير التفاعل'},
-    {name:'setup_members',description:'عداد الأعضاء النشطين'},
-    {name:'sandall',description:'إرسال إعلان للمشتركين',options:[{name:'message',description:'الإعلان',type:3,required:true}]},
-    {name:'sand',description:'إرسال خاص لعضو',options:[{name:'member',description:'العضو',type:6,required:true},{name:'message',description:'الرسالة',type:3,required:true}]},
-    {name:'log',description:'عرض سجلات البوت'},
-    {name:'giveaway',description:'إرسال Giveaway في روم تختاره',options:[{name:'channel',description:'الروم النصي',type:7,required:true,channel_types:[0]},{name:'message',description:'نص الـ Giveaway',type:3,required:true,max_length:4000}]}
+    {name:'طرد_عضو',description:'طرد عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
+    {name:'حظر_عضو',description:'حظر عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
+    {name:'مسح_رسائل',description:'حذف رسائل من الروم',options:[{name:'العدد',description:'1-100',type:4,required:true,min_value:1,max_value:100}]},
+    {name:'بطء_الدردشة',description:'تغيير بطء الدردشة',options:[{name:'الثواني',description:'0-21600',type:4,required:true,min_value:0,max_value:21600}]},
+    {name:'قفل_الدردشة',description:'قفل الدردشة',options:[{name:'reason',description:'السبب',type:3,required:false}]},
+    {name:'فتح_الدردشة',description:'فتح الدردشة'},
+    {name:'تفعيل_تذكير',description:'تذكير تفاعل كل 5 ساعات'},
+    {name:'ايقاف_تذكير',description:'إيقاف تذكير التفاعل'},
+    {name:'عداد_الأعضاء',description:'عداد الأعضاء النشطين'},
+    {name:'اعلان_للجميع',description:'إرسال إعلان للمشتركين',options:[{name:'النص',description:'الإعلان',type:3,required:true}]},
+    {name:'رسالة_خاصة',description:'إرسال رسالة خاصة لعضو',options:[{name:'العضو',description:'العضو',type:6,required:true},{name:'النص',description:'الرسالة',type:3,required:true}]},
+    {name:'سجلات',description:'عرض سجلات البوت'},
+    {name:'سحب_جائزة',description:'إرسال سحب جائزة في روم تختاره',options:[{name:'الروم',description:'الروم النصي',type:7,required:true,channel_types:[0]},{name:'النص',description:'نص الـ Giveaway',type:3,required:true,max_length:4000}]}
   ];
 
   try {
@@ -733,11 +734,11 @@ client.on('interactionCreate', async i => {
     if (!i.isChatInputCommand()) return;
     const c = i.commandName;
 
-    if(c==='ping')return i.reply('🏓 Pong! '+Math.round(client.ws.ping)+'ms');
-    if (c === 'giveaway') {
+    if(c==='سرعة')return i.reply('🏓 Pong! '+Math.round(client.ws.ping)+'ms');
+    if (c === 'سحب_جائزة') {
       if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
-      const channel=i.options.getChannel('channel',true);
-      const text=i.options.getString('message',true).trim();
+      const channel=i.options.getChannel('الروم',true);
+      const text=i.options.getString('النص',true).trim();
       if (!channel.isTextBased?.()) return i.reply({content:'❌ اختر روم نصي.',flags:MessageFlags.Ephemeral});
       const me=i.guild.members.me;
       const cp=channel.permissionsFor(me);
@@ -772,14 +773,52 @@ client.on('interactionCreate', async i => {
       }
     }
 
+    if (c === 'نقل_اعضاء') {
+      if (!perms(i, PermissionsBitField.Flags.MoveMembers)) {
+        return i.reply({content:'❌ تحتاج صلاحية نقل الأعضاء (Move Members).',flags:MessageFlags.Ephemeral});
+      }
+      const source = i.options.getChannel('المصدر', true);
+      const destination = i.options.getChannel('الوجهة', true);
+      if (!source.isVoiceBased?.() || !destination.isVoiceBased?.()) {
+        return i.reply({content:'❌ اختر رومين صوتيين صالحين.',flags:MessageFlags.Ephemeral});
+      }
+      if (source.id === destination.id) {
+        return i.reply({content:'❌ اختر رومًا مختلفًا كوجهة للنقل.',flags:MessageFlags.Ephemeral});
+      }
+      const botMember = i.guild.members.me;
+      for (const ch of [source, destination]) {
+        const cp = ch.permissionsFor(botMember);
+        if (!cp?.has(PermissionsBitField.Flags.ViewChannel) ||
+            !cp?.has(PermissionsBitField.Flags.Connect) ||
+            !cp?.has(PermissionsBitField.Flags.MoveMembers)) {
+          return i.reply({content:'❌ البوت يحتاج صلاحيات عرض الروم والاتصال ونقل الأعضاء في الرومين المحددين.',flags:MessageFlags.Ephemeral});
+        }
+      }
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const targets = [...source.members.values()].filter(m => m.id !== client.user.id);
+      let moved = 0, failed = 0;
+      for (const target of targets) {
+        try {
+          if (target.voice.channelId === source.id) {
+            await target.voice.setChannel(destination, 'نقل الأعضاء بواسطة أمر /نقل_اعضاء');
+            moved++;
+          }
+        } catch (e) {
+          failed++;
+          log('Move members failed for ' + target.id + ': ' + e.message);
+        }
+      }
+      return i.editReply('🚚 **اكتمل النقل**\\nمن: '+source.toString()+'\\nإلى: '+destination.toString()+'\\n✅ تم نقل: **'+moved+'**\\n❌ تعذّر نقل: **'+failed+'**');
+    }
+
     if (c === 'قصف') {
       if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
-      const bombType = i.options.getString('bomb', true);
-      const channel = i.options.getChannel('channel', true);
+      const bombType = i.options.getString('نوع_القنبلة', true);
+      const channel = i.options.getChannel('الروم', true);
       if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
       const speedMode = bombType === 'speed';
       const effects = speedMode ? getBombSpeedFiles() : getBombFiles();
-      const folderName = speedMode ? 'bomb speed' : 'bomb';
+      const folderName = speedMode ? 'bomb speed' : 'نوع_القنبلة';
       const durationMs = speedMode ? 2000 : 30000;
       if (!effects.length) return i.reply({content:'📭 مجلد **'+folderName+'** فارغ. ارفع ملف الصوت إليه في GitHub أولًا.',flags:MessageFlags.Ephemeral});
       const file = effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0];
@@ -820,7 +859,7 @@ client.on('interactionCreate', async i => {
       }
     }
 
-    if (c === 'games') {
+    if (c === 'العاب') {
       const menu=new StringSelectMenuBuilder().setCustomId('games_menu').setPlaceholder('🎮 اختر لعبة').addOptions(
         {label:'مافيا',description:'4-12: ليلة وتصويت وأدوار',value:'mafia',emoji:'🔪'},
         {label:'حجر ورقة مقص ضد بوت',description:'العب فوراً ضد البوت',value:'rps_bot',emoji:'🤖'},
@@ -830,7 +869,7 @@ client.on('interactionCreate', async i => {
       return i.reply({content:'🎮 **قائمة الألعاب**\nاختر اللعبة:',components:[new ActionRowBuilder().addComponents(menu)]});
     }
 
-    if (c === 'play_music') {
+    if (c === 'تشغيل_اغنية') {
       const m = member(i);
       if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
       const songs = getSongs();
@@ -844,44 +883,44 @@ client.on('interactionCreate', async i => {
       return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
     }
 
-    if (c === 'music_stop') {
+    if (c === 'ايقاف_الموسيقى') {
       return i.reply(stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى.' : 'ما فيه موسيقى شغالة.');
     }
 
-    if (c==='kick' || c==='ban') {
-      const permission=c==='kick'?PermissionsBitField.Flags.KickMembers:PermissionsBitField.Flags.BanMembers;
+    if (c==='طرد_عضو' || c==='حظر_عضو') {
+      const permission=c==='طرد_عضو'?PermissionsBitField.Flags.KickMembers:PermissionsBitField.Flags.BanMembers;
       if (!perms(i,permission)) return i.reply({content:'❌ ما عندك الصلاحية المطلوبة.',flags:MessageFlags.Ephemeral});
-      const u=i.options.getUser('user',true);
+      const u=i.options.getUser('العضو',true);
       const m=i.guild.members.cache.get(u.id);
       if (u.id===i.user.id) return i.reply({content:'❌ لا يمكنك استخدام الأمر على نفسك.',flags:MessageFlags.Ephemeral});
-      if (m && !(c==='kick'?m.kickable:m.bannable)) return i.reply({content:'❌ رتبة البوت يجب أن تكون أعلى من العضو.',flags:MessageFlags.Ephemeral});
-      if (c==='kick') await m.kick('Discord bot /kick by '+i.user.tag);
+      if (m && !(c==='طرد_عضو'?m.kickable:m.bannable)) return i.reply({content:'❌ رتبة البوت يجب أن تكون أعلى من العضو.',flags:MessageFlags.Ephemeral});
+      if (c==='طرد_عضو') await m.kick('Discord bot /kick by '+i.user.tag);
       else await i.guild.members.ban(u.id,{reason:'Discord bot /ban by '+i.user.tag});
-      return i.reply((c==='kick'?'👢 تم طرد ':'🔨 تم حظر ')+ '**'+u.tag+'**');
+      return i.reply((c==='طرد_عضو'?'👢 تم طرد ':'🔨 تم حظر ')+ '**'+u.tag+'**');
     }
 
-    if (c==='clear') {
+    if (c==='مسح_رسائل') {
       if (!perms(i,PermissionsBitField.Flags.ManageMessages)) return i.reply({content:'❌ تحتاج Manage Messages.',flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
-      const n=i.options.getInteger('amount',true);
+      const n=i.options.getInteger('العدد',true);
       const deleted=await i.channel.bulkDelete(n,true);
       return i.editReply('🧹 تم حذف **'+deleted.size+'** رسالة.');
     }
 
-    if (c==='slowmode') {
+    if (c==='بطء_الدردشة') {
       if (!perms(i,PermissionsBitField.Flags.ManageChannels)) return i.reply({content:'❌ تحتاج Manage Channels.',flags:MessageFlags.Ephemeral});
-      const n=i.options.getInteger('seconds',true);
+      const n=i.options.getInteger('الثواني',true);
       await i.channel.setRateLimitPerUser(n);
       return i.reply('🐢 Slowmode: **'+n+' ثانية**.');
     }
 
-    if (c==='chat_lock' || c==='chat_unlock') {
+    if (c==='قفل_الدردشة' || c==='فتح_الدردشة') {
       if (!perms(i,PermissionsBitField.Flags.ManageChannels)) return i.reply({content:'❌ تحتاج Manage Channels.',flags:MessageFlags.Ephemeral});
-      await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:c==='chat_lock'?false:null});
-      return i.reply(c==='chat_lock'?'🔒 تم قفل الدردشة.':'🔓 تم فتح الدردشة.');
+      await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:c==='قفل_الدردشة'?false:null});
+      return i.reply(c==='قفل_الدردشة'?'🔒 تم قفل الدردشة.':'🔓 تم فتح الدردشة.');
     }
 
-    if (c==='setup_chat') {
+    if (c==='تفعيل_تذكير') {
       if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
       if (chatTimers.has(i.channelId)) clearInterval(chatTimers.get(i.channelId));
       const timer=setInterval(async()=>{try{await i.channel.send('@everyone تفاعلو 📢')}catch(e){log(e.message)}},5*60*60*1000);
@@ -889,7 +928,7 @@ client.on('interactionCreate', async i => {
       return i.reply('📢 تم تشغيل التذكير كل 5 ساعات.');
     }
 
-    if (c==='stop_chat') {
+    if (c==='ايقاف_تذكير') {
       if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
       const t=chatTimers.get(i.channelId);
       if (!t) return i.reply('ℹ️ ما فيه تذكير شغال هنا.');
@@ -897,17 +936,17 @@ client.on('interactionCreate', async i => {
       return i.reply('🛑 تم إيقاف التذكير.');
     }
 
-    if (c==='sand' || c==='sandall') {
+    if (c==='رسالة_خاصة' || c==='اعلان_للجميع') {
       if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
-      const text=i.options.getString('message',true);
+      const text=i.options.getString('النص',true);
       let sent=0, failed=0;
-      const ids=c==='sandall'?[...(dmSubscribers.get(i.guildId)||new Set())]:[i.options.getUser('member',true).id];
+      const ids=c==='اعلان_للجميع'?[...(dmSubscribers.get(i.guildId)||new Set())]:[i.options.getUser('العضو',true).id];
       for(const id of ids){try{const u=await client.users.fetch(id);await u.send('📢 **إعلان من '+i.guild.name+'**\\n\\n'+text);sent++}catch{failed++}}
       return i.editReply('✅ أُرسلت: **'+sent+'** | ❌ فشلت: **'+failed+'**');
     }
 
-    if (c==='log') {
+    if (c==='سجلات') {
       if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
       return i.reply({content:'```\n'+logs.slice(-20).join('\n').slice(0,1800)+'\n```',flags:MessageFlags.Ephemeral});
     }
