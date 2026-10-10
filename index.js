@@ -236,7 +236,7 @@ function battleRow() {
   );
 }
 
-async function playVoiceEffect(memberObj, file, guildId) {
+async function playVoiceEffect(memberObj, file, guildId, durationMs = 0) {
   if (!memberObj?.voice?.channel) throw new Error('VOICE_REQUIRED');
 
   const old = effectStates.get(guildId);
@@ -260,7 +260,7 @@ async function playVoiceEffect(memberObj, file, guildId) {
     behaviors: { noSubscriber: NoSubscriberBehavior.Play }
   });
 
-  const state = { connection, player, ffmpeg: null };
+  const state = { connection, player, ffmpeg: null, timer: null };
   effectStates.set(guildId, state);
   connection.subscribe(player);
 
@@ -293,13 +293,17 @@ async function playVoiceEffect(memberObj, file, guildId) {
   player.play(resource);
   log('Playing effect ' + songLabel(file) + ' in ' + guildId);
 
-  player.once(AudioPlayerStatus.Idle, () => {
+  const cleanupEffect = () => {
     if (effectStates.get(guildId) !== state) return;
-    try { ffmpeg.kill(); } catch {}
+    if (state.timer) clearTimeout(state.timer);
+    try { player.stop(true); } catch {}
+    try { ffmpeg.kill('SIGKILL'); } catch {}
     try { connection.destroy(); } catch {}
     effectStates.delete(guildId);
     log('Effect finished, left voice in ' + guildId);
-  });
+  };
+  player.once(AudioPlayerStatus.Idle, cleanupEffect);
+  if (durationMs > 0) state.timer = setTimeout(cleanupEffect, durationMs);
 }
 
 async function playSong(memberObj, file, guildId) {
@@ -354,6 +358,7 @@ client.once('clientReady', async () => {
     {name:'music_repeat',description:'تشغيل أو إيقاف تكرار الأغنية'},
     {name:'games',description:'فتح قائمة الألعاب'},
     {name:'effects',description:'تشغيل مؤثر صوتي داخل الفويس'},
+    {name:'قصف',description:'تشغيل مؤثر صوتي في روم تختاره لمدة 30 ثانية',options:[{name:'channel',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
     {name:'serverinfo',description:'معلومات السيرفر'},
     {name:'userinfo',description:'معلومات عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
     {name:'avatar',description:'عرض صورة عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
@@ -646,6 +651,20 @@ client.on('interactionCreate', async i => {
 
     if(c==='help')return i.reply('🤖 **الأوامر**\\n\\n🎮 `/games`\\n🎵 `/play_music`\\n🔊 `/effects`\\n🏓 `/ping`\\n🎲 `/roll`\\n🪙 `/coinflip`\\n⚙️ `/botinfo`\\n🏠 `/serverinfo`\\n👤 `/userinfo` `/avatar`\\n🛡️ `/clear` `/slowmode` `/chat_lock` `/chat_unlock` `/kick` `/ban`');
 
+
+    if (c === 'قصف') {
+      if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
+      const channel = i.options.getChannel('channel', true);
+      if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
+      const effects = getEffectFiles();
+      if (!effects.length) return i.reply({content:'📭 لا توجد مؤثرات داخل مجلد effects. أضف ملف الصوت هناك أولًا.',flags:MessageFlags.Ephemeral});
+      const file = effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0];
+      const cp = channel.permissionsFor(i.guild.members.me);
+      if (!cp?.has(PermissionsBitField.Flags.Connect) || !cp?.has(PermissionsBitField.Flags.Speak)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Connect و Speak في الروم المختار.',flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      try { await playVoiceEffect({voice:{channel}}, file, i.guildId, 30000); return i.editReply('🔊 بدأ المؤثر في '+channel.toString()+' لمدة أقصاها 30 ثانية، ثم سيخرج البوت تلقائيًا. لم يتم كتم أو طرد أي عضو.'); }
+      catch (e) { log('Qasf command error: ' + e.stack); return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak ومن سلامة ملف الصوت.'); }
+    }
 
     if (c === 'effects') {
       const m = member(i);
