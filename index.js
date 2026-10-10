@@ -43,6 +43,7 @@ const mafiaGames = new Map();
 const rpsGames = new Map();
 const battleGames = new Map();
 const effectStates = new Map();
+const addonStates = new Map();
 
 function log(x) {
   const line = '[' + new Date().toISOString() + '] ' + x;
@@ -87,6 +88,15 @@ function getBombSpeedFiles() {
   return fs.readdirSync(bombDir)
     .filter(f => /\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
     .map(f => path.join('bomb speed', f))
+    .sort((a,b) => a.localeCompare(b));
+}
+
+function getSovietAddonFiles() {
+  const dir = path.join(__dirname, 'اضافات', 'اتحاد سوفيتي');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter(f => /\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
+    .map(f => path.join('اضافات', 'اتحاد سوفيتي', f))
     .sort((a,b) => a.localeCompare(b));
 }
 
@@ -338,6 +348,99 @@ async function playVoiceEffect(memberObj, file, guildId, durationMs = 0, onDurat
   }
 }
 
+async function cleanupSovietAddon(guildId, state, stopAudio = false) {
+  if (!state || state.cleaning) return;
+  state.cleaning = true;
+  if (addonStates.get(guildId) === state) addonStates.delete(guildId);
+  try { if (state.timer) clearTimeout(state.timer); } catch {}
+  if (stopAudio) { try { state.player?.stop(true); } catch {} }
+  try { state.ffmpeg?.kill('SIGKILL'); } catch {}
+  try { state.connection?.destroy(); } catch {}
+
+  for (const saved of state.members || []) {
+    try {
+      const m = await state.guild.members.fetch(saved.id);
+      if (m.nickname !== saved.nickname) await m.setNickname(saved.nickname, 'Restore after اتحاد سوفيتي add-on');
+    } catch (e) { log('Soviet add-on nickname restore failed for ' + saved.id + ': ' + e.message); }
+    try {
+      const m = await state.guild.members.fetch(saved.id);
+      if (m.voice.serverMute !== saved.serverMute) await m.voice.setMute(saved.serverMute, 'Restore after اتحاد سوفيتي add-on');
+    } catch (e) { log('Soviet add-on mute restore failed for ' + saved.id + ': ' + e.message); }
+  }
+  try {
+    if (state.channel && state.channel.name !== state.originalChannelName) {
+      await state.channel.setName(state.originalChannelName, 'Restore after اتحاد سوفيتي add-on');
+    }
+  } catch (e) { log('Soviet add-on channel restore failed: ' + e.message); }
+  log('اتحاد سوفيتي add-on finished in ' + guildId);
+}
+
+async function runSovietAddon(memberObj, guildId) {
+  if (!memberObj?.voice?.channel) throw new Error('VOICE_REQUIRED');
+  if (addonStates.has(guildId)) throw new Error('ADDON_ALREADY_RUNNING');
+  const files = getSovietAddonFiles();
+  if (!files.length) throw new Error('ADDON_FILE_MISSING');
+
+  const channel = memberObj.voice.channel;
+  const guild = channel.guild;
+  const me = guild.members.me;
+  const guildPerms = me?.permissions;
+  const channelPerms = channel.permissionsFor(me);
+  if (!guildPerms?.has(PermissionsBitField.Flags.ManageNicknames)) throw new Error('NEED_MANAGE_NICKNAMES');
+  if (!guildPerms?.has(PermissionsBitField.Flags.MuteMembers)) throw new Error('NEED_MUTE_MEMBERS');
+  if (!channelPerms?.has(PermissionsBitField.Flags.ManageChannels)) throw new Error('NEED_MANAGE_CHANNELS');
+  if (!channelPerms?.has(PermissionsBitField.Flags.Connect) || !channelPerms?.has(PermissionsBitField.Flags.Speak)) throw new Error('NEED_VOICE_PERMS');
+
+  const state = {
+    guild, channel, originalChannelName: channel.name,
+    members: [...channel.members.values()].filter(m => !m.user.bot).map(m => ({ id:m.id, nickname:m.nickname, serverMute:m.voice.serverMute })),
+    connection:null, player:null, ffmpeg:null, timer:null, cleaning:false
+  };
+  addonStates.set(guildId, state);
+
+  try {
+    await channel.setName('اتحاد-سوفيتي-🫡', 'اتحاد سوفيتي add-on started');
+    for (const saved of state.members) {
+      try {
+        const target = await guild.members.fetch(saved.id);
+        if (target.manageable && target.nickname !== 'تحيا اتحاد سوفيتي 🫡') await target.setNickname('تحيا اتحاد سوفيتي 🫡', 'اتحاد سوفيتي add-on started');
+      } catch (e) { log('Soviet add-on nickname change failed for ' + saved.id + ': ' + e.message); }
+      try {
+        const target = await guild.members.fetch(saved.id);
+        if (!target.voice.serverMute) await target.voice.setMute(true, 'اتحاد سوفيتي add-on started');
+      } catch (e) { log('Soviet add-on mute failed for ' + saved.id + ': ' + e.message); }
+    }
+
+    const connection = joinVoiceChannel({ channelId:channel.id, guildId, adapterCreator:guild.voiceAdapterCreator, selfDeaf:false, selfMute:false });
+    const player = createAudioPlayer({ behaviors:{ noSubscriber:NoSubscriberBehavior.Play } });
+    state.connection = connection;
+    state.player = player;
+    connection.subscribe(player);
+    player.on('error', e => {
+      log('Soviet add-on audio error: ' + e.message);
+      cleanupSovietAddon(guildId, state, true).catch(err => log('Soviet cleanup error: ' + err.message));
+    });
+    await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+
+    const full = path.join(__dirname, files[0]);
+    if (!fs.existsSync(full)) throw new Error('ADDON_FILE_MISSING');
+    const ffmpeg = spawn(ffmpegPath, ['-hide_banner','-loglevel','error','-i',full,'-vn','-ac','2','-ar','48000','-c:a','libopus','-b:a','128k','-f','ogg','pipe:1']);
+    state.ffmpeg = ffmpeg;
+    ffmpeg.stderr.on('data', d => log('Soviet add-on FFmpeg: ' + d.toString().trim()));
+    ffmpeg.on('error', e => {
+      log('Soviet add-on FFmpeg error: ' + e.message);
+      cleanupSovietAddon(guildId, state, true).catch(err => log('Soviet cleanup error: ' + err.message));
+    });
+    ffmpeg.on('close', code => { if (code !== 0) log('Soviet add-on FFmpeg exited with code ' + code); });
+    player.once(AudioPlayerStatus.Idle, () => cleanupSovietAddon(guildId, state, false).catch(err => log('Soviet cleanup error: ' + err.message)));
+    player.play(createAudioResource(ffmpeg.stdout, { inputType:StreamType.OggOpus }));
+    log('اتحاد سوفيتي add-on started in ' + guildId + ' with ' + songLabel(files[0]));
+  } catch (e) {
+    await cleanupSovietAddon(guildId, state, true);
+    throw e;
+  }
+}
+
 async function playSong(memberObj, file, guildId) {
   if (!memberObj?.voice?.channel) throw new Error('VOICE_REQUIRED');
 
@@ -389,6 +492,7 @@ client.once('clientReady', async () => {
     {name:'music_stop',description:'إيقاف الموسيقى والخروج'},
     {name:'games',description:'فتح قائمة الألعاب'},
     {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'bomb',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'}]},{name:'channel',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
+    {name:'اضافات',description:'اختيار وتشغيل إضافة مؤقتة',options:[{name:'اضافة',description:'اختر الإضافة',type:3,required:true,choices:[{name:'اتحاد سوفيتي 🫡',value:'soviet_union'}]}]},
     {name:'kick',description:'طرد عضو',options:[{name:'user',description:'العضو',type:6,required:true}]},
     {name:'ban',description:'حظر عضو',options:[{name:'user',description:'العضو',type:6,required:true}]},
     {name:'clear',description:'حذف رسائل',options:[{name:'amount',description:'1-100',type:4,required:true,min_value:1,max_value:100}]},
@@ -641,6 +745,31 @@ client.on('interactionCreate', async i => {
       const embed=new EmbedBuilder().setTitle('🎁 Giveaway').setDescription(text).setFooter({text:'🎁 Giveaway'}).setTimestamp();
       await channel.send({embeds:[embed]});
       return i.reply({content:'✅ تم إرسال Giveaway في '+channel.toString()+' 🎁',flags:MessageFlags.Ephemeral});
+    }
+
+    if (c === 'اضافات') {
+      if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية إدارة السيرفر لاستخدام الإضافات.',flags:MessageFlags.Ephemeral});
+      const addon = i.options.getString('اضافة', true);
+      if (addon !== 'soviet_union') return i.reply({content:'❌ الإضافة غير معروفة.',flags:MessageFlags.Ephemeral});
+      const m = member(i);
+      if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً، ثم شغّل الإضافة.',flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      try {
+        await runSovietAddon(m, i.guildId);
+        return i.editReply('🫡 **بدأ اتحاد سوفيتي!** تغيّر اسم الفويس وأسماء الأعضاء وتم تفعيل الميوت، وستُستعاد الأسماء وحالة الميوت واسم الفويس بعد انتهاء الأغنية.');
+      } catch (e) {
+        log('Add-on command error: ' + (e?.stack || e));
+        const messages = {
+          VOICE_REQUIRED:'🎙️ ادخل الروم الصوتي أولاً.',
+          ADDON_ALREADY_RUNNING:'⏳ توجد إضافة شغالة بالفعل في هذا السيرفر.',
+          ADDON_FILE_MISSING:'📁 مجلد الإضافة فارغ. ارفع أغنية MP3 أو WAV أو OGG إلى مجلد اضافات/اتحاد سوفيتي.',
+          NEED_MANAGE_NICKNAMES:'❌ البوت يحتاج صلاحية Manage Nicknames.',
+          NEED_MUTE_MEMBERS:'❌ البوت يحتاج صلاحية Mute Members.',
+          NEED_MANAGE_CHANNELS:'❌ البوت يحتاج صلاحية Manage Channels في الروم.',
+          NEED_VOICE_PERMS:'❌ البوت يحتاج صلاحيتَي Connect و Speak.'
+        };
+        return i.editReply(messages[e.message] || '❌ فشلت الإضافة. تحقق من صلاحيات البوت وملف الأغنية، ثم راجع سجلات Render.');
+      }
     }
 
     if (c === 'قصف') {
