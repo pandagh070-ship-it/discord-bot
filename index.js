@@ -81,6 +81,15 @@ function getBombFiles() {
     .sort((a,b) => a.localeCompare(b));
 }
 
+function getBombSpeedFiles() {
+  const bombDir = path.join(__dirname, 'bomb speed');
+  if (!fs.existsSync(bombDir)) return [];
+  return fs.readdirSync(bombDir)
+    .filter(f => /\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
+    .map(f => path.join('bomb speed', f))
+    .sort((a,b) => a.localeCompare(b));
+}
+
 
 function songLabel(file) {
   return path.basename(file).replace(/\.[^.]+$/, '');
@@ -381,7 +390,7 @@ client.once('clientReady', async () => {
     {name:'music_repeat',description:'تشغيل أو إيقاف تكرار الأغنية'},
     {name:'games',description:'فتح قائمة الألعاب'},
     {name:'effects',description:'تشغيل مؤثر صوتي داخل الفويس'},
-    {name:'قصف',description:'تشغيل مؤثر صوتي في روم تختاره لمدة 30 ثانية',options:[{name:'channel',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
+    {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'bomb',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'القنبلة العادية (30 ثانية)',value:'normal'},{name:'Bomb Speed (ثانيتان)',value:'speed'}]},{name:'channel',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
     {name:'serverinfo',description:'معلومات السيرفر'},
     {name:'userinfo',description:'معلومات عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
     {name:'avatar',description:'عرض صورة عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
@@ -667,35 +676,28 @@ client.on('interactionCreate', async i => {
       const me=i.guild.members.me;
       const cp=channel.permissionsFor(me);
       if (!cp?.has(PermissionsBitField.Flags.SendMessages) || !cp?.has(PermissionsBitField.Flags.EmbedLinks)) return i.reply({content:'❌ البوت يحتاج Send Messages و Embed Links في الروم المحدد.',flags:MessageFlags.Ephemeral});
-      const embed=new EmbedBuilder().setTitle('🎁 Giveaway').setDescription(text).setFooter({text:'🎁 Giveaway'}).setTimestamp();
-      await channel.send({embeds:[embed]});
-      return i.reply({content:'✅ تم إرسال Giveaway في '+channel.toString()+' 🎁',flags:MessageFlags.Ephemeral});
-    }
-
-    if(c==='help')return i.reply('🤖 **الأوامر**\\n\\n🎮 `/games`\\n🎵 `/play_music`\\n🔊 `/effects`\\n🏓 `/ping`\\n🎲 `/roll`\\n🪙 `/coinflip`\\n⚙️ `/botinfo`\\n🏠 `/serverinfo`\\n👤 `/userinfo` `/avatar`\\n🛡️ `/clear` `/slowmode` `/chat_lock` `/chat_unlock` `/kick` `/ban`');
-
-
-    if (c === 'قصف') {
+      const embed=new EmbedBuilder().setTitle('🎁 Giveaway').setDescription(text).setFooter({text:'🎁 Giveaway'}).    if (c === 'قصف') {
       if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
+      const bombType = i.options.getString('bomb', true);
       const channel = i.options.getChannel('channel', true);
       if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
-      const effects = getBombFiles();
-      if (!effects.length) return i.reply({content:'📭 مجلد bomb فارغ. ارفع ملف القنبلة إلى مجلد bomb في GitHub أولًا.',flags:MessageFlags.Ephemeral});
+      const speedMode = bombType === 'speed';
+      const effects = speedMode ? getBombSpeedFiles() : getBombFiles();
+      const folderName = speedMode ? 'bomb speed' : 'bomb';
+      const durationMs = speedMode ? 2000 : 30000;
+      if (!effects.length) return i.reply({content:'📭 مجلد **'+folderName+'** فارغ. ارفع ملف الصوت إليه في GitHub أولًا.',flags:MessageFlags.Ephemeral});
       const file = effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0];
       const cp = channel.permissionsFor(i.guild.members.me);
-      const needed = [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak, PermissionsBitField.Flags.MuteMembers, PermissionsBitField.Flags.MoveMembers];
       if (!cp?.has(PermissionsBitField.Flags.Connect) || !cp?.has(PermissionsBitField.Flags.Speak)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Connect و Speak في الروم المختار.',flags:MessageFlags.Ephemeral});
-      if (!cp?.has(PermissionsBitField.Flags.MuteMembers) || !cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ لإكمال الأمر، امنح البوت صلاحيتَي Mute Members و Move Members أيضًا.',flags:MessageFlags.Ephemeral});
+      if (!cp?.has(PermissionsBitField.Flags.MuteMembers) || !cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Mute Members و Move Members أيضًا.',flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
       try {
-        await playVoiceEffect({voice:{channel}}, file, i.guildId, 30000, async (voiceChannel) => {
+        await playVoiceEffect({voice:{channel}}, file, i.guildId, durationMs, async (voiceChannel) => {
           let muted = 0, disconnected = 0, failed = 0;
           const targets = [...voiceChannel.members.values()].filter(m => m.id !== client.user.id && !m.user.bot);
           for (const target of targets) {
             try {
-              if (!target.voice.serverMute) {
-                await target.voice.setMute(true, 'Timed /قصف voice-room action');
-              }
+              if (!target.voice.serverMute) await target.voice.setMute(true, 'Timed /قصف voice-room action');
               muted++;
             } catch (e) {
               failed++;
@@ -713,7 +715,16 @@ client.on('interactionCreate', async i => {
               log('Qasf disconnect failed for ' + target.id + ': ' + e.message);
             }
           }
-          log('Qasf completed in ' + voiceChannel.id + ': muted=' + muted + ', disconnected=' + disconnected + ', failed=' + failed);
+          log('Qasf (' + bombType + ') completed in ' + voiceChannel.id + ': muted=' + muted + ', disconnected=' + disconnected + ', failed=' + failed);
+        });
+        return i.editReply('🔊 بدأ **'+(speedMode ? 'Bomb Speed' : 'القنبلة العادية')+'** في '+channel.toString()+'. بعد '+(speedMode ? 'ثانيتين' : '30 ثانية')+' سيحاول البوت عمل Server Mute وفصل الأعضاء البشر الموجودين في الروم الصوتي. لن يطردهم من السيرفر.');
+      } catch (e) {
+        log('Qasf command error: ' + e.stack);
+        return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Mute Members و Move Members ومن سلامة ملف الصوت.');
+      }
+    }
+
+    + disconnected + ', failed=' + failed);
         });
         return i.editReply('🔊 بدأ الصوت في '+channel.toString()+' لمدة 30 ثانية. بعدها سيحاول البوت عمل Server Mute وفصل الأعضاء الموجودين في الروم الصوتي، ثم يخرج. لن يطردهم من السيرفر.');
       } catch (e) {
