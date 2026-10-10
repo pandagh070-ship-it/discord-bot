@@ -498,7 +498,7 @@ client.once('clientReady', async () => {
     {name:'حظر_عضو',description:'حظر عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
     {name:'مسح_رسائل',description:'حذف رسائل من الروم',options:[{name:'العدد',description:'1-100',type:4,required:true,min_value:1,max_value:100}]},
     {name:'بطء_الدردشة',description:'تغيير بطء الدردشة',options:[{name:'الثواني',description:'0-21600',type:4,required:true,min_value:0,max_value:21600}]},
-    {name:'قفل_الدردشة',description:'قفل الدردشة',options:[{name:'reason',description:'السبب',type:3,required:false}]},
+    {name:'قفل_الدردشة',description:'قفل الدردشة'},
     {name:'فتح_الدردشة',description:'فتح الدردشة'},
     {name:'تفعيل_تذكير',description:'تذكير تفاعل كل 5 ساعات'},
     {name:'ايقاف_تذكير',description:'إيقاف تذكير التفاعل'},
@@ -818,7 +818,7 @@ client.on('interactionCreate', async i => {
       if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
       const speedMode = bombType === 'speed';
       const effects = speedMode ? getBombSpeedFiles() : getBombFiles();
-      const folderName = speedMode ? 'bomb speed' : 'نوع_القنبلة';
+      const folderName = speedMode ? 'bomb speed' : 'bomb';
       const durationMs = speedMode ? 2000 : 30000;
       if (!effects.length) return i.reply({content:'📭 مجلد **'+folderName+'** فارغ. ارفع ملف الصوت إليه في GitHub أولًا.',flags:MessageFlags.Ephemeral});
       const file = effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0];
