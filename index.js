@@ -794,7 +794,7 @@ client.on('interactionCreate', async i => {
       try {
         webhook = await i.channel.createWebhook({name:'رسائل بالنيابة', reason:'نشر رسالة موضّحة بطلب من مشرف'});
         await webhook.send({
-          content:safeText+'\\n\\nⓘ نُشرت عبر البوت بطلب من '+i.user.tag+'، وليست رسالة كتبها العضو بنفسه.',
+          content:safeText+'\n\nⓘ نُشرت عبر البوت بطلب من '+i.user.tag+'، وليست رسالة كتبها العضو بنفسه.',
           username:displayName,
           avatarURL,
           allowedMentions:{parse:[]}
