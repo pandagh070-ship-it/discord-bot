@@ -387,14 +387,8 @@ client.once('clientReady', async () => {
     {name:'ping',description:'عرض سرعة البوت'},
     {name:'play_music',description:'اختيار وتشغيل أغنية'},
     {name:'music_stop',description:'إيقاف الموسيقى والخروج'},
-    {name:'music_repeat',description:'تشغيل أو إيقاف تكرار الأغنية'},
     {name:'games',description:'فتح قائمة الألعاب'},
-    {name:'effects',description:'تشغيل مؤثر صوتي داخل الفويس'},
     {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'bomb',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'}]},{name:'channel',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
-    {name:'serverinfo',description:'معلومات السيرفر'},
-    {name:'userinfo',description:'معلومات عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
-    {name:'avatar',description:'عرض صورة عضو',options:[{name:'user',description:'العضو',type:6,required:false}]},
-    {name:'invite',description:'رابط إضافة البوت'},
     {name:'kick',description:'طرد عضو',options:[{name:'user',description:'العضو',type:6,required:true}]},
     {name:'ban',description:'حظر عضو',options:[{name:'user',description:'العضو',type:6,required:true}]},
     {name:'clear',description:'حذف رسائل',options:[{name:'amount',description:'1-100',type:4,required:true,min_value:1,max_value:100}]},
@@ -404,16 +398,9 @@ client.once('clientReady', async () => {
     {name:'setup_chat',description:'تذكير تفاعل كل 5 ساعات'},
     {name:'stop_chat',description:'إيقاف تذكير التفاعل'},
     {name:'setup_members',description:'عداد الأعضاء النشطين'},
-    {name:'dm_subscribe',description:'الاشتراك في إعلانات الخاص'},
-    {name:'dm_unsubscribe',description:'إلغاء الاشتراك'},
-    {name:'subscribers',description:'عرض المشتركين'},
     {name:'sandall',description:'إرسال إعلان للمشتركين',options:[{name:'message',description:'الإعلان',type:3,required:true}]},
     {name:'sand',description:'إرسال خاص لعضو',options:[{name:'member',description:'العضو',type:6,required:true},{name:'message',description:'الرسالة',type:3,required:true}]},
     {name:'log',description:'عرض سجلات البوت'},
-    {name:'help',description:'عرض أوامر البوت'},
-    {name:'coinflip',description:'رمي عملة'},
-    {name:'roll',description:'رقم عشوائي',options:[{name:'max',description:'الحد الأعلى',type:4,required:false,min_value:2,max_value:1000}]},
-    {name:'botinfo',description:'معلومات البوت'},
     {name:'giveaway',description:'إرسال Giveaway في روم تختاره',options:[{name:'channel',description:'الروم النصي',type:7,required:true,channel_types:[0]},{name:'message',description:'نص الـ Giveaway',type:3,required:true,max_length:4000}]}
   ];
 
@@ -464,28 +451,6 @@ client.on('interactionCreate', async i => {
 
 
 
-    if (i.isStringSelectMenu() && i.customId === 'effects_menu') {
-      const m = member(i);
-      if (!m?.voice?.channel) {
-        return i.update({content:'🎙️ ادخل الروم الصوتي أولاً.',components:[]});
-      }
-
-      const effects = getEffectFiles();
-      const file = effects[Number(i.values[0])];
-      if (!file) {
-        return i.update({content:'❌ المؤثر غير موجود.',components:[]});
-      }
-
-      try {
-        await playVoiceEffect(m, file, i.guildId);
-        return i.update({content:'🔊 تم تشغيل المؤثر: **' + songLabel(file) + '**\\n🚪 البوت سيخرج تلقائياً بعد انتهاء الصوت.',components:[]});
-      } catch(e) {
-        log('Effect start error: ' + e.stack);
-        return i.update({content:'❌ فشل تشغيل المؤثر الصوتي.',components:[]});
-      }
-    }
-
-    // Games UI
     if (i.isStringSelectMenu() && i.customId === 'games_menu') {
       const choice = i.values[0];
       if (choice === 'rps_bot') {
@@ -665,9 +630,6 @@ client.on('interactionCreate', async i => {
     const c = i.commandName;
 
     if(c==='ping')return i.reply('🏓 Pong! '+Math.round(client.ws.ping)+'ms');
-    if(c==='coinflip')return i.reply(Math.random()<.5?'🪙 **صورة**':'🪙 **كتابة**');
-    if(c==='roll'){const max=Math.min(1000,Math.max(2,i.options.getInteger('max')||100));return i.reply('🎲 النتيجة: **'+(Math.floor(Math.random()*max)+1)+' / '+max+'**');}
-    if(c==='botinfo')return i.reply('🤖 **معلومات البوت**\\n🏓 Ping: **'+Math.round(client.ws.ping)+'ms**\\n🎵 أغاني: **'+getSongs().length+'**\\n🔊 مؤثرات: **'+getEffectFiles().length+'**\\n🎮 ألعاب: **4**');
     if (c === 'giveaway') {
       if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
       const channel=i.options.getChannel('channel',true);
@@ -729,34 +691,6 @@ client.on('interactionCreate', async i => {
       }
     }
 
-    if (c === 'effects') {
-      const m = member(i);
-      if (!m?.voice?.channel) {
-        return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
-      }
-
-      const effects = getEffectFiles();
-      if (!effects.length) {
-        return i.reply({content:'📭 ما فيه مؤثرات صوتية. أضف ملفات الصوت إلى مجلد effects.',flags:MessageFlags.Ephemeral});
-      }
-
-      const menu = new StringSelectMenuBuilder()
-        .setCustomId('effects_menu')
-        .setPlaceholder('🔊 اختر مؤثر صوتي')
-        .addOptions(
-          effects.slice(0,25).map((f,n)=>({
-            label:songLabel(f).slice(0,100),
-            value:String(n)
-          }))
-        );
-
-      return i.reply({
-        content:'🔊 **المؤثرات الصوتية**\\nاختر مؤثراً، والبوت سيدخل الروم ويشغله ثم يخرج تلقائياً.',
-        components:[new ActionRowBuilder().addComponents(menu)],
-        flags:MessageFlags.Ephemeral
-      });
-    }
-
     if (c === 'games') {
       const menu=new StringSelectMenuBuilder().setCustomId('games_menu').setPlaceholder('🎮 اختر لعبة').addOptions(
         {label:'مافيا',description:'4-12: ليلة وتصويت وأدوار',value:'mafia',emoji:'🔪'},
@@ -783,27 +717,6 @@ client.on('interactionCreate', async i => {
 
     if (c === 'music_stop') {
       return i.reply(stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى.' : 'ما فيه موسيقى شغالة.');
-    }
-
-    if (c === 'music_repeat') {
-      const s = musicStates.get(i.guildId);
-      if (!s) return i.reply({content:'❌ ما فيه أغنية شغالة.',flags:MessageFlags.Ephemeral});
-      s.repeat = !s.repeat;
-      return i.reply((s.repeat ? '🔁 التكرار **مفعّل**' : '➡️ التكرار **متوقف**')+' للأغنية الحالية.');
-    }
-
-    if (c === 'serverinfo') return i.reply(`🏠 **${i.guild.name}**\n👥 الأعضاء: **${i.guild.memberCount}**\n📝 الرومات: **${i.guild.channels.cache.size}**\n🎭 الرتب: **${i.guild.roles.cache.size}**`);
-
-    if (c === 'userinfo' || c === 'avatar') {
-      const u=i.options.getUser('user') || i.user;
-      if (c==='avatar') return i.reply(u.displayAvatarURL({size:1024}));
-      const m=i.guild.members.cache.get(u.id);
-      return i.reply(`👤 **${u.tag}**\n🆔 ${u.id}\n🎭 ${m?.roles?.highest?.name || 'غير معروف'}`);
-    }
-
-    if (c === 'invite') {
-      const url=`https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=8`;
-      return i.reply({content:'🤖 إضافة البوت:\n'+url,flags:MessageFlags.Ephemeral});
     }
 
     if (c==='kick' || c==='ban') {
@@ -853,18 +766,6 @@ client.on('interactionCreate', async i => {
       if (!t) return i.reply('ℹ️ ما فيه تذكير شغال هنا.');
       clearInterval(t); chatTimers.delete(i.channelId);
       return i.reply('🛑 تم إيقاف التذكير.');
-    }
-
-    if (c==='dm_subscribe' || c==='dm_unsubscribe') {
-      const set=dmSubscribers.get(i.guildId)||new Set();
-      if(c==='dm_subscribe') set.add(i.user.id); else set.delete(i.user.id);
-      dmSubscribers.set(i.guildId,set);
-      return i.reply({content:c==='dm_subscribe'?'✅ تم اشتراكك.':'✅ تم إلغاء الاشتراك.',flags:MessageFlags.Ephemeral});
-    }
-
-    if (c==='subscribers') {
-      const set=dmSubscribers.get(i.guildId)||new Set();
-      return i.reply({content:set.size?'📬 المشتركين: '+[...set].map(x=>'<@'+x+'>').join(', '):'📭 لا يوجد مشتركين.',flags:MessageFlags.Ephemeral});
     }
 
     if (c==='sand' || c==='sandall') {
