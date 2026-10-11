@@ -998,6 +998,11 @@ client.on('interactionCreate', async i => {
               if (Number.isInteger(saved.type) && ch.type !== saved.type) {
                 log('Restore note: channel type differs for saved channel ' + saved.id + '; leaving existing type unchanged.');
               }
+              const targetParentId = saved.parentId ? (restoredIds.get(saved.parentId) || saved.parentId) : null;
+              if (targetParentId && guild.channels.cache.has(targetParentId) &&
+                  ch.parentId !== targetParentId && typeof ch.setParent === 'function') {
+                await ch.setParent(targetParentId, { reason: 'Restore saved channel category via /اعاده' });
+              }
             }
             if (ch && saved.id) restoredIds.set(saved.id, ch.id);
           } catch (e) {
@@ -1005,7 +1010,7 @@ client.on('interactionCreate', async i => {
             log('Channel restore failed for ' + (saved.id || saved.name) + ': ' + e.message);
           }
         }
-        const nextMeta = { ...backup.meta, active: false, restoredAt: new Date().toISOString() };
+        const nextMeta = { ...backup.meta, active: failed > 0, restoredAt: new Date().toISOString() };
         await backup.metaMessage.edit(RENAME_META_MARKER + JSON.stringify(nextMeta));
         return i.editReply('🔄 انتهت الاستعادة.\n✅ رجعت أسماء: **' + restored + '**\n🆕 أُعيد إنشاء رومات مفقودة: **' + recreated + '**\n⏭️ سجلات غير صالحة: **' + skipped + '**\n⚠️ تعذّر: **' + failed + '**\n💾 احتفظت بالسجل.');
       } catch (e) {
