@@ -547,13 +547,18 @@ async function getRenameBackup(storage) {
       if (Array.isArray(chunk)) chunks.set(chunkIndex, chunk);
     } catch { throw new Error('BACKUP_DATA_INVALID'); }
   }
-  if (chunks.size !== meta.chunkCount) throw new Error('BACKUP_INCOMPLETE');
+  // Recover usable chunks even if older bot versions wrote incorrect chunk/record counts.
+  // Sort by the stored chunk index and reject only when no valid channel records remain.
   const records = [];
-  for (let n = 0; n < meta.chunkCount; n++) {
-    if (!chunks.has(n)) throw new Error('BACKUP_INCOMPLETE');
-    records.push(...chunks.get(n));
+  const chunkIndexes = [...chunks.keys()].sort((a, b) => a - b);
+  for (const n of chunkIndexes) records.push(...chunks.get(n));
+  if (!records.length) throw new Error('BACKUP_INCOMPLETE');
+  if (chunks.size !== meta.chunkCount || records.length !== meta.recordCount) {
+    log('Backup count mismatch; recovering ' + records.length + ' available channel records from ' + chunks.size + ' data chunks (metadata expected ' + meta.recordCount + ' records / ' + meta.chunkCount + ' chunks).');
+    meta.recoveryWarning = true;
+    meta.recordCount = records.length;
+    meta.chunkCount = chunks.size;
   }
-  if (records.length !== meta.recordCount) throw new Error('BACKUP_INCOMPLETE');
   return { metaMessage, meta, records };
 }
 
@@ -1012,7 +1017,7 @@ client.on('interactionCreate', async i => {
         }
         const nextMeta = { ...backup.meta, active: failed > 0, restoredAt: new Date().toISOString() };
         await backup.metaMessage.edit(RENAME_META_MARKER + JSON.stringify(nextMeta));
-        return i.editReply('🔄 انتهت الاستعادة.\n✅ رجعت أسماء: **' + restored + '**\n🆕 أُعيد إنشاء رومات مفقودة: **' + recreated + '**\n⏭️ سجلات غير صالحة: **' + skipped + '**\n⚠️ تعذّر: **' + failed + '**\n💾 احتفظت بالسجل.');
+        return i.editReply('🔄 انتهت الاستعادة.' + (backup.meta.recoveryWarning ? '\n⚠️ تنبيه: بيانات النسخة القديمة كانت غير متطابقة؛ استعدت كل السجلات المتاحة.' : '') + '\n✅ رجعت أسماء: **' + restored + '**\n🆕 أُعيد إنشاء رومات مفقودة: **' + recreated + '**\n⏭️ سجلات غير صالحة: **' + skipped + '**\n⚠️ تعذّر: **' + failed + '**\n💾 احتفظت بالسجل.');
       } catch (e) {
         log('Channel rename/restore error: ' + (e?.stack || e));
         const messages = {
