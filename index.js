@@ -536,7 +536,7 @@ async function getRenameBackup(storage) {
   const dataMessages = ordered.filter(m => m.content.startsWith(RENAME_DATA_MARKER + meta.backupId + ':'));
   const records = [];
   for (const message of dataMessages) {
-    const separator = message.content.indexOf(':', RENAME_DATA_MARKER.length + meta.backupId.length + 1);
+    const separator = message.content.indexOf(':', RENAME_DATA_MARKER.length + meta.backupId.length + 2);
     if (separator < 0) continue;
     try {
       const chunk = JSON.parse(message.content.slice(separator + 1));
@@ -836,7 +836,7 @@ client.on('interactionCreate', async i => {
           topic:'ETO_HACK_SIMULATION_CHANNEL | محاكاة تمثيلية فقط، ليست اختراقًا حقيقيًا.'
         });
         const lines = [
-          {content:'@everyone 🚨 **تنبيه أمني عاجل**\\nتم رصد نشاط غير معتاد على السيرفر. جارٍ فحص الأنظمة... ', allowedMentions:{parse:['everyone']}},
+          {content:'🚨 **تنبيه أمني تجريبي**\\nتم رصد نشاط غير معتاد على السيرفر. جارٍ فحص الأنظمة... '},
           {content:'`[SECURITY] Unusual activity detected`\\n`INITIALIZING DIAGNOSTIC TERMINAL...`'},
           {content:'`ACCESS LOG: '+Math.random().toString(16).slice(2,10).toUpperCase()+'\\nNODE: '+Math.floor(1000+Math.random()*9000)+' | STATUS: INVESTIGATING`'},
           {content:'`CHECKING CHANNEL INTEGRITY... [########--] 80%`\\n`CONNECTION TRACE: '+Math.random().toString(16).slice(2,12).toUpperCase()+'`'},
@@ -855,7 +855,7 @@ client.on('interactionCreate', async i => {
           timers.push(timer);
         }
         log('Hack simulation started by '+i.user.tag+' in guild '+guild.id);
-        return i.editReply('✅ بدأت محاكاة الاختراق في '+channel.toString()+'. سيرسل البوت تنبيه @everyone واحدًا ثم مؤثرات نصية، ويكشف المقلب تلقائيًا بعد نحو 8 ثوانٍ. لا توجد رسائل خاصة أو تغييرات في رومات أخرى.');
+        return i.editReply('✅ بدأت محاكاة الاختراق في '+channel.toString()+'. سيرسل البوت تنبيهًا ثم مؤثرات نصية، ويكشف المقلب تلقائيًا بعد نحو 8 ثوانٍ. لا توجد رسائل خاصة أو تغييرات في رومات أخرى.');
       } catch (e) {
         log('Hack simulation start error: '+(e?.stack||e));
         return i.editReply('❌ تعذّر إنشاء روم المحاكاة. تأكد أن البوت يملك Manage Channels وView Channels وSend Messages.');
@@ -898,6 +898,7 @@ client.on('interactionCreate', async i => {
       }
       await i.deferReply({flags:MessageFlags.Ephemeral});
       try {
+        await guild.channels.fetch();
         const storage = await getRenameStorageChannel(guild, c === 'تغير');
         if (!storage) return i.editReply('📭 لا يوجد سجل محفوظ لأسماء الرومات. استخدم /تغير أولاً.');
         const backup = await getRenameBackup(storage);
