@@ -82,6 +82,15 @@ function getBombFiles() {
     .sort((a,b) => a.localeCompare(b));
 }
 
+function getDomainExpansionFiles() {
+  const dir = path.join(__dirname, 'توسيع مجال');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter(f => /\.(m4a|mp3|wav|ogg|webm)$/i.test(f))
+    .map(f => path.join('توسيع مجال', f))
+    .sort((a,b) => a.localeCompare(b));
+}
+
 function getBombSpeedFiles() {
   const bombDir = path.join(__dirname, 'bomb speed');
   if (!fs.existsSync(bombDir)) return [];
@@ -493,7 +502,7 @@ client.once('clientReady', async () => {
     {name:'ايقاف_الموسيقى',description:'إيقاف الموسيقى والخروج'},
     {name:'نقل_اعضاء',description:'نقل جميع الأعضاء من روم صوتي إلى روم آخر',options:[{name:'المصدر',description:'الروم الصوتي الذي تريد نقل الأعضاء منه',type:7,required:true,channel_types:[2,13]},{name:'الوجهة',description:'الروم الصوتي الذي تريد نقل الأعضاء إليه',type:7,required:true,channel_types:[2,13]}]},
     {name:'تكلم',description:'نشر نص واضح بالنيابة عن عضو',options:[{name:'العضو',description:'اختر العضو',type:6,required:true},{name:'الكلام',description:'النص الذي تريد نشره',type:3,required:true,max_length:1500}]},
-    {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'نوع_القنبلة',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'}]},{name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
+    {name:'مؤثره',description:'اختيار مؤثر صوتي وتشغيله في روم صوتي',options:[{name:'نوع_القنبلة',description:'اختر المؤثر الصوتي',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'},{name:'توسيع مجال 🤞',value:'domain_expansion'}],{name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
     {name:'اضافات',description:'اختيار وتشغيل إضافة مؤقتة',options:[{name:'اضافة',description:'اختر الإضافة',type:3,required:true,choices:[{name:'اتحاد سوفيتي 🫡',value:'soviet_union'}]}]},
     {name:'طرد_عضو',description:'طرد عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
     {name:'حظر_عضو',description:'حظر عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
@@ -861,17 +870,18 @@ client.on('interactionCreate', async i => {
       return i.editReply('🚚 **اكتمل النقل**\\nمن: '+source.toString()+'\\nإلى: '+destination.toString()+'\\n✅ تم نقل: **'+moved+'**\\n❌ تعذّر نقل: **'+failed+'**');
     }
 
-    if (c === 'قصف') {
+    if (c === 'مؤثره') {
       if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
       const bombType = i.options.getString('نوع_القنبلة', true);
       const channel = i.options.getChannel('الروم', true);
       if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
       const speedMode = bombType === 'speed';
-      const effects = speedMode ? getBombSpeedFiles() : getBombFiles();
-      const folderName = speedMode ? 'bomb speed' : 'bomb';
-      const durationMs = speedMode ? 2000 : 30000;
+      const domainExpansionMode = bombType === 'domain_expansion';
+      const effects = domainExpansionMode ? getDomainExpansionFiles() : (speedMode ? getBombSpeedFiles() : getBombFiles());
+      const folderName = domainExpansionMode ? 'توسيع مجال' : (speedMode ? 'bomb speed' : 'bomb');
+      const durationMs = domainExpansionMode ? 5000 : (speedMode ? 2000 : 30000);
       if (!effects.length) return i.reply({content:'📭 مجلد **'+folderName+'** فارغ. ارفع ملف الصوت إليه في GitHub أولًا.',flags:MessageFlags.Ephemeral});
-      const file = effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0];
+      const file = domainExpansionMode ? effects[0] : (effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0]);
       const cp = channel.permissionsFor(i.guild.members.me);
       if (!cp?.has(PermissionsBitField.Flags.Connect) || !cp?.has(PermissionsBitField.Flags.Speak)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Connect و Speak في الروم المختار.',flags:MessageFlags.Ephemeral});
       if (!cp?.has(PermissionsBitField.Flags.MuteMembers) || !cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Mute Members و Move Members أيضًا.',flags:MessageFlags.Ephemeral});
@@ -882,29 +892,29 @@ client.on('interactionCreate', async i => {
           const targets = [...voiceChannel.members.values()].filter(m => m.id !== client.user.id && !m.user.bot);
           for (const target of targets) {
             try {
-              if (!target.voice.serverMute) await target.voice.setMute(true, 'Timed /قصف voice-room action');
+              if (!target.voice.serverMute) await target.voice.setMute(true, 'Timed /مؤثره voice-room action');
               muted++;
             } catch (e) {
               failed++;
-              log('Qasf mute failed for ' + target.id + ': ' + e.message);
+              log('VoiceEffect mute failed for ' + target.id + ': ' + e.message);
             }
           }
           for (const target of targets) {
             try {
               if (target.voice.channelId === voiceChannel.id) {
-                await target.voice.disconnect('Timed /قصف voice-room action');
+                await target.voice.disconnect('Timed /مؤثره voice-room action');
                 disconnected++;
               }
             } catch (e) {
               failed++;
-              log('Qasf disconnect failed for ' + target.id + ': ' + e.message);
+              log('VoiceEffect disconnect failed for ' + target.id + ': ' + e.message);
             }
           }
-          log('Qasf (' + bombType + ') completed in ' + voiceChannel.id + ': muted=' + muted + ', disconnected=' + disconnected + ', failed=' + failed);
+          log('VoiceEffect (' + bombType + ') completed in ' + voiceChannel.id + ': muted=' + muted + ', disconnected=' + disconnected + ', failed=' + failed);
         });
-        return i.editReply('🔊 بدأ **'+(speedMode ? 'قنبله خاطفه 💣' : 'قنبله نوويه 💣')+'** في '+channel.toString()+'. بعد '+(speedMode ? 'ثانيتين' : '30 ثانية')+' سيحاول البوت عمل Server Mute وفصل الأعضاء البشر الموجودين في الروم الصوتي. لن يطردهم من السيرفر.');
+        return i.editReply('🔊 بدأ **'+(domainExpansionMode ? 'توسيع مجال 🤞' : (speedMode ? 'قنبله خاطفه 💣' : 'قنبله نوويه 💣'))+'** في '+channel.toString()+'. بعد '+(domainExpansionMode ? '5 ثوانٍ' : (speedMode ? 'ثانيتين' : '30 ثانية'))+' سيحاول البوت كتم الأعضاء البشر وفصلهم من المكالمة. لن يطردهم من السيرفر.');
       } catch (e) {
-        log('Qasf command error: ' + e.stack);
+        log('VoiceEffect command error: ' + e.stack);
         return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Mute Members و Move Members ومن سلامة ملف الصوت.');
       }
     }
