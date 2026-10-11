@@ -879,26 +879,17 @@ client.on('interactionCreate', async i => {
       const domainExpansionMode = bombType === 'domain_expansion';
       const effects = domainExpansionMode ? getDomainExpansionFiles() : (speedMode ? getBombSpeedFiles() : getBombFiles());
       const folderName = domainExpansionMode ? 'توسيع مجال' : (speedMode ? 'bomb speed' : 'bomb');
-      const durationMs = domainExpansionMode ? 5000 : (speedMode ? 2000 : 30000);
+      const durationMs = 6000;
       if (!effects.length) return i.reply({content:'📭 مجلد **'+folderName+'** فارغ. ارفع ملف الصوت إليه في GitHub أولًا.',flags:MessageFlags.Ephemeral});
       const file = domainExpansionMode ? effects[0] : (effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0]);
       const cp = channel.permissionsFor(i.guild.members.me);
       if (!cp?.has(PermissionsBitField.Flags.Connect) || !cp?.has(PermissionsBitField.Flags.Speak)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Connect و Speak في الروم المختار.',flags:MessageFlags.Ephemeral});
-      if (!cp?.has(PermissionsBitField.Flags.MuteMembers) || !cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Mute Members و Move Members أيضًا.',flags:MessageFlags.Ephemeral});
+      if (!cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ البوت يحتاج صلاحية Move Members لفصل الأعضاء من المكالمة.',flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
       try {
         await playVoiceEffect({voice:{channel}}, file, i.guildId, durationMs, async (voiceChannel) => {
-          let muted = 0, disconnected = 0, failed = 0;
+          let disconnected = 0, failed = 0;
           const targets = [...voiceChannel.members.values()].filter(m => m.id !== client.user.id && !m.user.bot);
-          for (const target of targets) {
-            try {
-              if (!target.voice.serverMute) await target.voice.setMute(true, 'Timed /مؤثره voice-room action');
-              muted++;
-            } catch (e) {
-              failed++;
-              log('VoiceEffect mute failed for ' + target.id + ': ' + e.message);
-            }
-          }
           for (const target of targets) {
             try {
               if (target.voice.channelId === voiceChannel.id) {
@@ -910,12 +901,12 @@ client.on('interactionCreate', async i => {
               log('VoiceEffect disconnect failed for ' + target.id + ': ' + e.message);
             }
           }
-          log('VoiceEffect (' + bombType + ') completed in ' + voiceChannel.id + ': muted=' + muted + ', disconnected=' + disconnected + ', failed=' + failed);
+          log('VoiceEffect (' + bombType + ') completed in ' + voiceChannel.id + ': disconnected=' + disconnected + ', failed=' + failed);
         });
-        return i.editReply('🔊 بدأ **'+(domainExpansionMode ? 'توسيع مجال 🤞' : (speedMode ? 'قنبله خاطفه 💣' : 'قنبله نوويه 💣'))+'** في '+channel.toString()+'. بعد '+(domainExpansionMode ? '5 ثوانٍ' : (speedMode ? 'ثانيتين' : '30 ثانية'))+' سيحاول البوت كتم الأعضاء البشر وفصلهم من المكالمة. لن يطردهم من السيرفر.');
+        return i.editReply('🔊 بدأ **'+(domainExpansionMode ? 'توسيع مجال 🤞' : (speedMode ? 'قنبله خاطفه 💣' : 'قنبله نوويه 💣'))+'** في '+channel.toString()+'. بعد 6 ثوانٍ سيحاول البوت فصل الأعضاء البشر من المكالمة فقط، بدون إعطائهم ميوت أو طردهم من السيرفر.');
       } catch (e) {
         log('VoiceEffect command error: ' + e.stack);
-        return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Mute Members و Move Members ومن سلامة ملف الصوت.');
+        return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Move Members ومن سلامة ملف الصوت.');
       }
     }
 
