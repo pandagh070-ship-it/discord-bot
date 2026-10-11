@@ -492,12 +492,88 @@ http.createServer((req,res) => {
   res.end('Discord bot is online.');
 }).listen(PORT, '0.0.0.0', () => log('HTTP server listening on ' + PORT));
 
+
+// Persistent channel-name backup stored in a private Discord channel (survives Render restarts).
+const RENAME_STORAGE_MARKER = 'ETO_CHANNEL_BACKUP_STORAGE:';
+const RENAME_META_MARKER = 'ETO_CHANNEL_BACKUP_META:';
+const RENAME_DATA_MARKER = 'ETO_CHANNEL_BACKUP_DATA:';
+
+async function getRenameStorageChannel(guild, create = false) {
+  let storage = guild.channels.cache.find(ch =>
+    ch.type === 0 && typeof ch.topic === 'string' &&
+    ch.topic.includes(RENAME_STORAGE_MARKER + guild.id)
+  );
+  if (storage) return storage;
+  const fetched = await guild.channels.fetch().catch(() => null);
+  storage = fetched?.find(ch =>
+    ch.type === 0 && typeof ch.topic === 'string' &&
+    ch.topic.includes(RENAME_STORAGE_MARKER + guild.id)
+  );
+  if (storage || !create) return storage || null;
+  const me = guild.members.me || await guild.members.fetch(client.user.id);
+  return guild.channels.create({
+    name: 'eto-bot-backup',
+    type: 0,
+    topic: RENAME_STORAGE_MARKER + guild.id + ' | Private storage for /تغير and /اعاده',
+    permissionOverwrites: [
+      { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+      { id: me.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
+    ],
+    reason: 'Persistent backup for channel names'
+  });
+}
+
+async function getRenameBackup(storage) {
+  const messages = await storage.messages.fetch({ limit: 100 });
+  const ordered = [...messages.values()].sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+  const metaMessage = ordered.find(m => m.content.startsWith(RENAME_META_MARKER));
+  if (!metaMessage) return { metaMessage: null, meta: null, records: [] };
+  let meta;
+  try { meta = JSON.parse(metaMessage.content.slice(RENAME_META_MARKER.length)); }
+  catch { throw new Error('BACKUP_META_INVALID'); }
+  if (!meta?.backupId || !Number.isInteger(meta.chunkCount)) throw new Error('BACKUP_META_INVALID');
+  const dataMessages = ordered.filter(m => m.content.startsWith(RENAME_DATA_MARKER + meta.backupId + ':'));
+  const records = [];
+  for (const message of dataMessages) {
+    const separator = message.content.indexOf(':', RENAME_DATA_MARKER.length + meta.backupId.length + 1);
+    if (separator < 0) continue;
+    try {
+      const chunk = JSON.parse(message.content.slice(separator + 1));
+      if (Array.isArray(chunk)) records.push(...chunk);
+    } catch { throw new Error('BACKUP_DATA_INVALID'); }
+  }
+  if (records.length !== meta.recordCount) throw new Error('BACKUP_INCOMPLETE');
+  return { metaMessage, meta, records };
+}
+
+async function saveRenameBackup(storage, records, active) {
+  const backupId = Date.now().toString(36) + '-' + storage.guild.id;
+  const chunks = [];
+  let chunk = [];
+  for (const record of records) {
+    const candidate = [...chunk, record];
+    if (chunk.length && (RENAME_DATA_MARKER + backupId + ':' + chunks.length + ':' + JSON.stringify(candidate)).length > 1700) {
+      chunks.push(chunk);
+      chunk = [record];
+    } else chunk = candidate;
+  }
+  if (chunk.length) chunks.push(chunk);
+  for (let n = 0; n < chunks.length; n++) {
+    await storage.send(RENAME_DATA_MARKER + backupId + ':' + n + ':' + JSON.stringify(chunks[n]));
+  }
+  const meta = { backupId, active, chunkCount: chunks.length, recordCount: records.length, savedAt: new Date().toISOString() };
+  await storage.send(RENAME_META_MARKER + JSON.stringify(meta));
+}
+
+
 client.once('clientReady', async () => {
   log('Bot online as ' + client.user.tag);
 
   const commands = [
     {name:'شغل',description:'إعادة تشغيل بوت Render (لرتبة Start bot فقط)'},
     {name:'سرعة',description:'عرض سرعة البوت'},
+    {name:'تغير',description:'تغيير أسماء جميع الرومات مع حفظ الأسماء الأصلية',options:[{name:'الاسم',description:'الاسم الجديد الذي سيُستخدم لكل الرومات',type:3,required:true,min_length:1,max_length:100}]},
+    {name:'اعاده',description:'استعادة أسماء الرومات المحفوظة سابقًا'},
     {name:'تشغيل_اغنية',description:'اختيار وتشغيل أغنية'},
     {name:'ايقاف_الموسيقى',description:'إيقاف الموسيقى والخروج'},
     {name:'نقل_اعضاء',description:'نقل جميع الأعضاء من روم صوتي إلى روم آخر',options:[{name:'المصدر',description:'الروم الصوتي الذي تريد نقل الأعضاء منه',type:7,required:true,channel_types:[2,13]},{name:'الوجهة',description:'الروم الصوتي الذي تريد نقل الأعضاء إليه',type:7,required:true,channel_types:[2,13]}]},
@@ -736,6 +812,67 @@ client.on('interactionCreate', async i => {
 
     if (!i.isChatInputCommand()) return;
     const c = i.commandName;
+
+    if (c === 'تغير' || c === 'اعاده') {
+      if (!i.guild) return i.reply({content:'❌ هذا الأمر يعمل داخل السيرفر فقط.', flags:MessageFlags.Ephemeral});
+      if (!perms(i, PermissionsBitField.Flags.ManageChannels)) {
+        return i.reply({content:'❌ تحتاج صلاحية Manage Channels لاستخدام هذا الأمر.', flags:MessageFlags.Ephemeral});
+      }
+      const guild = i.guild;
+      const me = guild.members.me;
+      if (!me?.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+        return i.reply({content:'❌ البوت يحتاج صلاحية Manage Channels.', flags:MessageFlags.Ephemeral});
+      }
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      try {
+        const storage = await getRenameStorageChannel(guild, c === 'تغير');
+        if (!storage) return i.editReply('📭 لا يوجد سجل محفوظ لأسماء الرومات. استخدم /تغير أولاً.');
+        const backup = await getRenameBackup(storage);
+        if (c === 'تغير') {
+          const chosenName = i.options.getString('الاسم', true).trim();
+          if (!chosenName) return i.editReply('❌ اكتب الاسم الجديد.');
+          if (backup.meta?.active) {
+            const channelsToRename = [...guild.channels.cache.values()].filter(ch => ch.id !== storage.id && typeof ch.setName === 'function');
+            let changed = 0, failed = 0;
+            for (const ch of channelsToRename) {
+              try { if (ch.name !== chosenName) { await ch.setName(chosenName, 'Bulk rename via /تغير'); changed++; } }
+              catch (e) { failed++; log('Bulk rename failed for channel ' + ch.id + ': ' + e.message); }
+            }
+            return i.editReply('✅ تم تطبيق الاسم **' + chosenName + '** على الرومات.\n✏️ تغيّرت: **' + changed + '**\n⚠️ تعذّر: **' + failed + '**\n💾 الأسماء الأصلية ما زالت محفوظة من أول تغيير. استخدم /اعاده لاسترجاعها.');
+          }
+          const originalChannels = [...guild.channels.cache.values()]
+            .filter(ch => ch.id !== storage.id && typeof ch.setName === 'function')
+            .map(ch => ({ id: ch.id, name: ch.name }));
+          await saveRenameBackup(storage, originalChannels, true);
+          let changed = 0, failed = 0;
+          for (const ch of guild.channels.cache.values()) {
+            if (ch.id === storage.id || typeof ch.setName !== 'function') continue;
+            try { if (ch.name !== chosenName) { await ch.setName(chosenName, 'Bulk rename via /تغير'); changed++; } }
+            catch (e) { failed++; log('Bulk rename failed for channel ' + ch.id + ': ' + e.message); }
+          }
+          return i.editReply('✅ تم تغيير أسماء الرومات إلى **' + chosenName + '**.\n✏️ تغيّرت: **' + changed + '**\n⚠️ تعذّر: **' + failed + '**\n💾 حفظت الأسماء الأصلية داخل سجل خاص، وستبقى محفوظة حتى لو انطفأ البوت أو أُعيد تشغيله. استخدم /اعاده لاسترجاعها.');
+        }
+        if (!backup.meta?.active) return i.editReply('ℹ️ ما فيه أسماء محفوظة تحتاج استعادة. استخدم /تغير أولاً.');
+        let restored = 0, skipped = 0, failed = 0;
+        for (const saved of backup.records) {
+          const ch = guild.channels.cache.get(saved.id);
+          if (!ch || typeof ch.setName !== 'function') { skipped++; continue; }
+          try { if (ch.name !== saved.name) { await ch.setName(saved.name, 'Restore original channel names via /اعاده'); restored++; } }
+          catch (e) { failed++; log('Channel restore failed for ' + saved.id + ': ' + e.message); }
+        }
+        const nextMeta = { ...backup.meta, active: false, restoredAt: new Date().toISOString() };
+        await backup.metaMessage.edit(RENAME_META_MARKER + JSON.stringify(nextMeta));
+        return i.editReply('🔄 انتهت الاستعادة.\n✅ رجعت أسماء: **' + restored + '**\n⏭️ رومات محذوفة/غير متاحة: **' + skipped + '**\n⚠️ تعذّر تغيير: **' + failed + '**\n💾 السجل محفوظ، ويمكنك استخدام /تغير مرة ثانية.');
+      } catch (e) {
+        log('Channel rename/restore error: ' + (e?.stack || e));
+        const messages = {
+          BACKUP_META_INVALID:'❌ سجل النسخة الاحتياطية غير صالح.',
+          BACKUP_DATA_INVALID:'❌ تعذّر قراءة بيانات الأسماء المحفوظة.',
+          BACKUP_INCOMPLETE:'❌ سجل الأسماء غير مكتمل. لم أبدأ الاستعادة حتى لا أخمّن الأسماء.'
+        };
+        return i.editReply(messages[e.message] || '❌ تعذّر تنفيذ الأمر. تأكد من صلاحيات إدارة الرومات وأن البوت يستطيع إنشاء روم خاص وإرسال الرسائل فيه.');
+      }
+    }
 
     if (c === 'شغل') {
       const hasStartRole = i.member?.roles?.cache?.some(role => role.name === 'Start bot');
