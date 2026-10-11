@@ -945,6 +945,87 @@ client.on('interactionCreate', async i => {
       await i.deferReply({flags:MessageFlags.Ephemeral});
       try {
         await guild.channels.fetch();
+
+        // /اعاده now applies the user's fixed channel-name list directly.
+        // It does not depend on a previous /تغير backup being active.
+        if (c === 'اعاده') {
+          const savedChannels = [
+            { id: '1554494567254982758', name: '╾━╤デ═一 عن السيرفر 一═デ╤━', type: 4 },
+            { id: '1554494652600684544', name: '╾━╤デ═一 الكتابات 一═デ╤━╼', type: 4 },
+            { id: '1554494754824130680', name: '╾━╤デ═一 الدعم 一═デ╤━╼', type: 4 },
+            { id: '1554499544585342976', name: '╾━╤デ═一 الصوتيات 一═デ╤━╼', type: 4 },
+            { id: '1554499720380940388', name: '💬・الشات', type: 0, parent: 'الكتابات' },
+            { id: '1554499801951899721', name: '😂・الميمز', type: 0, parent: 'الكتابات' },
+            { id: '1554499867286573097', name: '📸・ميديا', type: 0, parent: 'الكتابات' },
+            { id: '1554499910714269756', name: '🎨・الرسم', type: 0, parent: 'الكتابات' },
+            { id: '1554499986962522263', name: '🎙️・فويس', type: 2, parent: 'الصوتيات' },
+            { id: '1554500051806453760', name: '💤・𝐀𝐅𝐊', type: 2, parent: 'الصوتيات' },
+            { id: '1554500358448095262', name: '🎮・العاب', type: 0, parent: 'الكتابات' },
+            { id: '1554500444980641792', name: '🔒・الخاص', type: 0, parent: 'الدعم' },
+            { id: '1554500963518386289', name: '📜・القوانين', type: 0, parent: 'عن السيرفر' },
+            { id: '1554501104287486035', name: '🎫・التذكرة', type: 0, parent: 'الدعم' },
+            { id: '1554501187049496586', name: '📌・التحديثات', type: 0, parent: 'عن السيرفر' },
+            { id: '1554501231727349760', name: '📰・الأخبار', type: 0, parent: 'عن السيرفر' },
+            { id: '1554501326736457739', name: '🎉・الفعاليات', type: 0, parent: 'عن السيرفر' },
+            { id: '1554501788021821531', name: '👋・الترحيب', type: 0, parent: 'عن السيرفر' },
+            { id: '1554507252407476264', name: '🎮・روبلوكس', type: 0, parent: 'الكتابات' },
+            { id: '1554507484037914645', name: '🔫・فالورنت', type: 0, parent: 'الكتابات' },
+            { id: '1554914822808805480', name: '(only friends)', type: 0, parent: 'الكتابات' },
+            { id: '1555596224483295253', name: '➕・اصنع رومك', type: 0, parent: 'الدعم' },
+            { id: '1555596226286723103', name: '⚙️・التحكم', type: 0, parent: 'الدعم' },
+            { id: '1555947689286312107', name: '🗂・السجل', type: 0, parent: 'الدعم' },
+            { id: '1555952100767301776', name: 'rules', type: 0, parent: 'عن السيرفر' },
+            { id: '1555952101316890655', name: 'moderator-only', type: 0, parent: 'الدعم' },
+            { id: '1556038118472290455', name: '🟢・نشيطين', type: 0, parent: 'عن السيرفر' }
+          ];
+          const categoryNames = {
+            'عن السيرفر': savedChannels[0].name,
+            'الكتابات': savedChannels[1].name,
+            'الدعم': savedChannels[2].name,
+            'الصوتيات': savedChannels[3].name
+          };
+          const categories = new Map();
+          let renamed = 0, created = 0, failed = 0;
+          // Rename existing IDs where possible; create a replacement if a saved channel was deleted.
+          for (const saved of savedChannels.filter(ch => ch.type === 4)) {
+            try {
+              let channel = guild.channels.cache.get(saved.id);
+              if (channel && channel.type !== 4) channel = null;
+              if (!channel) {
+                channel = guild.channels.cache.find(ch => ch.type === 4 && ch.name === saved.name);
+              }
+              if (channel) {
+                if (channel.name !== saved.name) { await channel.setName(saved.name, 'Apply fixed /اعاده channel list'); renamed++; }
+              } else {
+                channel = await guild.channels.create({ name: saved.name, type: 4, reason: 'Recreate fixed channel list via /اعاده' });
+                created++;
+              }
+              categories.set(saved.name === categoryNames['عن السيرفر'] ? 'عن السيرفر' :
+                saved.name === categoryNames['الكتابات'] ? 'الكتابات' :
+                saved.name === categoryNames['الدعم'] ? 'الدعم' : 'الصوتيات', channel.id);
+            } catch (e) { failed++; log('Fixed restore category failed for ' + saved.name + ': ' + e.message); }
+          }
+          for (const saved of savedChannels.filter(ch => ch.type !== 4)) {
+            try {
+              let channel = guild.channels.cache.get(saved.id);
+              if (channel && channel.type !== saved.type) channel = null;
+              if (!channel) channel = guild.channels.cache.find(ch => ch.type === saved.type && ch.name === saved.name);
+              const options = { name: saved.name, type: saved.type, reason: 'Apply fixed /اعاده channel list' };
+              const parentId = categories.get(saved.parent);
+              if (parentId && saved.type !== 2) options.parent = parentId;
+              if (channel) {
+                if (channel.name !== saved.name) { await channel.setName(saved.name, 'Apply fixed /اعاده channel list'); renamed++; }
+                if (parentId && channel.parentId !== parentId && saved.type !== 2) await channel.setParent(parentId, { reason: 'Restore category placement via /اعاده' });
+              } else {
+                if (parentId) options.parent = parentId;
+                await guild.channels.create(options);
+                created++;
+              }
+            } catch (e) { failed++; log('Fixed restore channel failed for ' + saved.name + ': ' + e.message); }
+          }
+          return i.editReply('✅ تم تطبيق أسماء الرومات التي أرسلتها.\n✏️ تم تغيير الأسماء: **' + renamed + '**\n🆕 تم إنشاء رومات مفقودة: **' + created + '**\n⚠️ تعذّر: **' + failed + '**');
+        }
+
         const storage = await getRenameStorageChannel(guild, c === 'تغير');
         if (!storage) return i.editReply('📭 لا يوجد سجل محفوظ لأسماء الرومات. استخدم /تغير أولاً.');
         const backup = await getRenameBackup(storage);
