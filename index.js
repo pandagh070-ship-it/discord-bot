@@ -218,7 +218,7 @@ async function mafiaNightStart(g){
     }catch(err){log('Mafia DM error: '+err.message);}
   }
   const ch=await client.channels.fetch(g.channelId).catch(()=>null);
-  if(ch) await ch.send('🌙 **بدأ الليل**\\nالأدوار السرية تتخذ قراراتها في الخاص.');
+  if(ch) await ch.send('🌙 **بدأ الليل**\nالأدوار السرية تتخذ قراراتها في الخاص.');
 }
 
 async function mafiaNightResolve(g){
@@ -231,7 +231,7 @@ async function mafiaNightResolve(g){
       await u.send('🔎 النتيجة: <@'+g.night.detectiveTarget+'> هو **'+(g.roles[g.night.detectiveTarget]==='mafia'?'مافيا 🔪':'ليس مافيا 👤')+'**.');
     }catch(err){log('Mafia detective DM error: '+err.message);}
   }
-  let msg='☀️ **صباح جديد!**\\n';
+  let msg='☀️ **صباح جديد!**\n';
   if(k&&k!==s&&g.alive.has(k)){g.alive.delete(k);msg+='💀 <@'+k+'> مات الليلة.';}
   else msg+='🕊️ لم يمت أحد الليلة.';
   g.phase='day'; g.votes={};
@@ -245,7 +245,7 @@ async function mafiaNightResolve(g){
           .setEmoji('🗳️').setStyle(ButtonStyle.Danger)
       )));
     }
-    await ch.send({content:msg+'\\n\\n🗳️ **التصويت مفتوح.** اختر لاعباً لإخراجه.',components:rows.slice(0,5)});
+    await ch.send({content:msg+'\n\n🗳️ **التصويت مفتوح.** اختر لاعباً لإخراجه.',components:rows.slice(0,5)});
   }
   await mafiaCheckWin(g);
 }
@@ -636,7 +636,7 @@ client.on('interactionCreate', async i => {
       if (!s) return i.reply({content:'❌ ما فيه أغنية شغالة.',flags:MessageFlags.Ephemeral});
       s.repeat = !s.repeat;
       return i.update({
-        content:'🎵 **'+songLabel(s.current)+'**\\n'+(s.repeat?'🔁 التكرار: **مفعّل**':'➡️ التكرار: **متوقف**'),
+        content:'🎵 **'+songLabel(s.current)+'**\n'+(s.repeat?'🔁 التكرار: **مفعّل**':'➡️ التكرار: **متوقف**'),
         components:[
           new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('music_repeat_btn').setLabel(s.repeat?'إلغاء التكرار':'تكرار 🔁').setStyle(s.repeat?ButtonStyle.Success:ButtonStyle.Secondary),
@@ -687,13 +687,13 @@ client.on('interactionCreate', async i => {
           new ButtonBuilder().setCustomId('battle_attack').setLabel('هجوم ⚔️').setStyle(ButtonStyle.Danger),
           new ButtonBuilder().setCustomId('battle_heal').setLabel('استرجاع ❤️').setStyle(ButtonStyle.Success)
         );
-        return i.update({content:'⚔️ **بدأت معركة اللاعبين!**\\n🎙️ الروم: <#'+channel.id+'>\\n👤 <@'+p1.id+'> ضد <@'+p2.id+'>\\n\\n❤️ كل لاعب يبدأ بـ **100 HP**\\n🎵 البوت دخل الروم وشغّل أغنية القتال.\\n\\n🎯 الدور الآن: <@'+g.turn+'>',components:[row]});
+        return i.update({content:'⚔️ **بدأت معركة اللاعبين!**\n🎙️ الروم: <#'+channel.id+'>\n👤 <@'+p1.id+'> ضد <@'+p2.id+'>\n\n❤️ كل لاعب يبدأ بـ **100 HP**\n🎵 البوت دخل الروم وشغّل أغنية القتال.\n\n🎯 الدور الآن: <@'+g.turn+'>',components:[row]});
       }
 
       if (choice === 'mafia') {
         const key=i.guildId+':mafia'; let g=gameLobbies.get(key);
         if(!g){g={host:i.user.id,players:new Set([i.user.id]),channelId:i.channelId};gameLobbies.set(key,g);}
-        return i.update({content:'🔪 **مافيا: غرفة الانتظار**\\n👥 **'+g.players.size+'/12** لاعبين\\n🎯 الحد الأدنى: **4**\\n\\n🌙 ليلة • ☀️ نهار • 🗳️ تصويت • 💉 طبيب • 🔎 محقق',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('mafia_join').setLabel('انضم').setEmoji('👤').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId('mafia_start').setLabel('بدء اللعبة').setEmoji('▶️').setStyle(ButtonStyle.Primary))]});
+        return i.update({content:'🔪 **مافيا: غرفة الانتظار**\n👥 **'+g.players.size+'/12** لاعبين\n🎯 الحد الأدنى: **4**\n\n🌙 ليلة • ☀️ نهار • 🗳️ تصويت • 💉 طبيب • 🔎 محقق',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('mafia_join').setLabel('انضم').setEmoji('👤').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId('mafia_start').setLabel('بدء اللعبة').setEmoji('▶️').setStyle(ButtonStyle.Primary))]});
       }
     }
 
@@ -756,14 +756,14 @@ client.on('interactionCreate', async i => {
           stopMusic(i.guildId);
           battleGames.delete(key);
           return i.update({
-            content:'🏆 **━━━━━━━━ انتهت المعركة ━━━━━━━━**🏆\\n\\n⚔️ <@'+i.user.id+'> وجّه ضربة بقوة **'+damage+'**!\\n💀 <@'+enemy+'> سقط في المعركة.\\n\\n🎵 تم إيقاف موسيقى القتال.\\n🚪 البوت غادر الروم.\\n\\n🏆 الفائز: <@'+i.user.id+'>',
+            content:'🏆 **━━━━━━━━ انتهت المعركة ━━━━━━━━**🏆\n\n⚔️ <@'+i.user.id+'> وجّه ضربة بقوة **'+damage+'**!\n💀 <@'+enemy+'> سقط في المعركة.\n\n🎵 تم إيقاف موسيقى القتال.\n🚪 البوت غادر الروم.\n\n🏆 الفائز: <@'+i.user.id+'>',
             components:[]
           });
         }
 
         g.turn=enemy;
         return i.update({
-          content:'⚔️ **━━━━━━━━ معركة اللاعبين ━━━━━━━━** ⚔️\\n\\n👤 <@'+i.user.id+'>\\n♥️ الصحة: **'+g.hp[i.user.id]+'**\\n\\n⚔️ الهجوم: **-'+damage+'**\\n💥 الضرر يتراوح من **10 إلى 50**\\n📉 الضربات الأقوى احتمالها أقل.\\n\\n👤 <@'+enemy+'>\\n♥️ الصحة: **'+g.hp[enemy]+'**\\n\\n━━━━━━━━━━━━━━━━━━━━\\n🎯 الدور الآن: <@'+g.turn+'>\\n\\n⚔️ **هجوم** = ضرر عشوائي\\n❤️ **استرجاع** = +10 إلى +20 HP\\n📌 الحد الأقصى للصحة: **100**',
+          content:'⚔️ **━━━━━━━━ معركة اللاعبين ━━━━━━━━** ⚔️\n\n👤 <@'+i.user.id+'>\n♥️ الصحة: **'+g.hp[i.user.id]+'**\n\n⚔️ الهجوم: **-'+damage+'**\n💥 الضرر يتراوح من **10 إلى 50**\n📉 الضربات الأقوى احتمالها أقل.\n\n👤 <@'+enemy+'>\n♥️ الصحة: **'+g.hp[enemy]+'**\n\n━━━━━━━━━━━━━━━━━━━━\n🎯 الدور الآن: <@'+g.turn+'>\n\n⚔️ **هجوم** = ضرر عشوائي\n❤️ **استرجاع** = +10 إلى +20 HP\n📌 الحد الأقصى للصحة: **100**',
           components:[battleRow()]
         });
       }
@@ -774,7 +774,7 @@ client.on('interactionCreate', async i => {
       const actualHeal=g.hp[i.user.id]-before;
       g.turn=enemy;
       return i.update({
-        content:'❤️ **━━━━━━━━ استرجاع ━━━━━━━━** ❤️\\n\\n👤 <@'+i.user.id+'>\\n♥️ الصحة: **'+before+' → '+g.hp[i.user.id]+'**\\n✨ استعاد **+'+actualHeal+' HP**\\n\\n👤 <@'+enemy+'>\\n♥️ الصحة: **'+g.hp[enemy]+'**\\n\\n━━━━━━━━━━━━━━━━━━━━\\n🎯 الدور الآن: <@'+g.turn+'>\\n\\n⚔️ الهجوم: **10–50**\\n❤️ الاسترجاع: **10–20**\\n🏁 الهدف: خفّض صحة خصمك إلى **0**',
+        content:'❤️ **━━━━━━━━ استرجاع ━━━━━━━━** ❤️\n\n👤 <@'+i.user.id+'>\n♥️ الصحة: **'+before+' → '+g.hp[i.user.id]+'**\n✨ استعاد **+'+actualHeal+' HP**\n\n👤 <@'+enemy+'>\n♥️ الصحة: **'+g.hp[enemy]+'**\n\n━━━━━━━━━━━━━━━━━━━━\n🎯 الدور الآن: <@'+g.turn+'>\n\n⚔️ الهجوم: **10–50**\n❤️ الاسترجاع: **10–20**\n🏁 الهدف: خفّض صحة خصمك إلى **0**',
         components:[battleRow()]
       });
     }
@@ -786,7 +786,7 @@ client.on('interactionCreate', async i => {
       if(g.players.has(i.user.id))return i.reply({content:'❌ أنت منضم بالفعل.',flags:MessageFlags.Ephemeral});
       if(g.players.size>=12)return i.reply({content:'❌ الغرفة مكتملة.',flags:MessageFlags.Ephemeral});
       g.players.add(i.user.id);
-      return i.update({content:'🔪 **مافيا: غرفة الانتظار**\\n👥 **'+g.players.size+'/12** لاعبين',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('mafia_join').setLabel('انضم').setEmoji('👤').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId('mafia_start').setLabel('بدء اللعبة').setEmoji('▶️').setStyle(ButtonStyle.Primary))]});
+      return i.update({content:'🔪 **مافيا: غرفة الانتظار**\n👥 **'+g.players.size+'/12** لاعبين',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('mafia_join').setLabel('انضم').setEmoji('👤').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId('mafia_start').setLabel('بدء اللعبة').setEmoji('▶️').setStyle(ButtonStyle.Primary))]});
     }
 
     if(i.isButton()&&i.customId==='mafia_start'){
@@ -798,8 +798,8 @@ client.on('interactionCreate', async i => {
       sh.forEach((id,x)=>roles[id]=x<n.mafia?'mafia':x<n.mafia+n.doctor?'doctor':x<n.mafia+n.doctor+n.detective?'detective':'citizen');
       const g={guildId:i.guildId,channelId:i.channelId,players,roles,alive:new Set(players),phase:'starting',night:{},votes:{}};
       mafiaGames.set(key,g);gameLobbies.delete(key);
-      for(const id of players){try{const u=await client.users.fetch(id);await u.send('🔐 **دورك:** '+mafiaRoleName(roles[id])+'\\n\\n'+(roles[id]==='mafia'?'اقضِ على المواطنين.':roles[id]==='doctor'?'أنقذ لاعباً كل ليلة.':roles[id]==='detective'?'حقق في لاعب كل ليلة.':'اكشف المافيا وصوّت عليها.')+'\\n⚠️ لا تكشف دورك.');}catch{}}
-      await i.update({content:'🔪 **بدأت المافيا!**\\n👥 اللاعبين: **'+players.length+'**\\n🔪 مافيا: **'+n.mafia+'** | 💉 طبيب: **'+n.doctor+'** | 🔎 محقق: **'+n.detective+'**\\n📩 الأدوار في الخاص.\\n🌙 تبدأ الليلة الأولى.',components:[]});
+      for(const id of players){try{const u=await client.users.fetch(id);await u.send('🔐 **دورك:** '+mafiaRoleName(roles[id])+'\n\n'+(roles[id]==='mafia'?'اقضِ على المواطنين.':roles[id]==='doctor'?'أنقذ لاعباً كل ليلة.':roles[id]==='detective'?'حقق في لاعب كل ليلة.':'اكشف المافيا وصوّت عليها.')+'\n⚠️ لا تكشف دورك.');}catch{}}
+      await i.update({content:'🔪 **بدأت المافيا!**\n👥 اللاعبين: **'+players.length+'**\n🔪 مافيا: **'+n.mafia+'** | 💉 طبيب: **'+n.doctor+'** | 🔎 محقق: **'+n.detective+'**\n📩 الأدوار في الخاص.\n🌙 تبدأ الليلة الأولى.',components:[]});
       await mafiaNightStart(g);return;
     }
 
@@ -820,7 +820,7 @@ client.on('interactionCreate', async i => {
       if(!g.alive.has(i.user.id))return i.reply({content:'💀 الميت لا يصوّت.',flags:MessageFlags.Ephemeral});
       const target=i.customId.replace('mafia_vote_','');if(!g.alive.has(target)||target===i.user.id)return i.reply({content:'❌ اختر لاعباً آخر.',flags:MessageFlags.Ephemeral});
       g.votes[i.user.id]=target;await i.reply({content:'🗳️ تم تسجيل تصويتك.',flags:MessageFlags.Ephemeral});
-      const alive=mafiaAlive(g);if(alive.every(id=>g.votes[id])){const counts={};alive.forEach(id=>{const t=g.votes[id];counts[t]=(counts[t]||0)+1;});const max=Math.max(...Object.values(counts)),w=Object.keys(counts).filter(id=>counts[id]===max),ch=await client.channels.fetch(g.channelId).catch(()=>null);if(w.length!==1){g.votes={};if(ch)await ch.send('🤝 **تعادل!** لا أحد يخرج.\\n🌙 ليلة جديدة.');await mafiaNightStart(g);return;}const out=w[0];g.alive.delete(out);if(ch)await ch.send('🗳️ **نتيجة التصويت:** 💀 <@'+out+'> خرج وكان **'+mafiaRoleName(g.roles[out])+'**.');if(await mafiaCheckWin(g))return;await mafiaNightStart(g);}return;
+      const alive=mafiaAlive(g);if(alive.every(id=>g.votes[id])){const counts={};alive.forEach(id=>{const t=g.votes[id];counts[t]=(counts[t]||0)+1;});const max=Math.max(...Object.values(counts)),w=Object.keys(counts).filter(id=>counts[id]===max),ch=await client.channels.fetch(g.channelId).catch(()=>null);if(w.length!==1){g.votes={};if(ch)await ch.send('🤝 **تعادل!** لا أحد يخرج.\n🌙 ليلة جديدة.');await mafiaNightStart(g);return;}const out=w[0];g.alive.delete(out);if(ch)await ch.send('🗳️ **نتيجة التصويت:** 💀 <@'+out+'> خرج وكان **'+mafiaRoleName(g.roles[out])+'**.');if(await mafiaCheckWin(g))return;await mafiaNightStart(g);}return;
     }
 
     if (!i.isChatInputCommand()) return;
@@ -846,10 +846,10 @@ client.on('interactionCreate', async i => {
           topic:'ETO_HACK_SIMULATION_CHANNEL | محاكاة تمثيلية فقط، ليست اختراقًا حقيقيًا.'
         });
         const lines = [
-          {content:'🚨 **تنبيه أمني تجريبي**\\nتم رصد نشاط غير معتاد على السيرفر. جارٍ فحص الأنظمة... '},
-          {content:'`[SECURITY] Unusual activity detected`\\n`INITIALIZING DIAGNOSTIC TERMINAL...`'},
-          {content:'`ACCESS LOG: '+Math.random().toString(16).slice(2,10).toUpperCase()+'\\nNODE: '+Math.floor(1000+Math.random()*9000)+' | STATUS: INVESTIGATING`'},
-          {content:'`CHECKING CHANNEL INTEGRITY... [########--] 80%`\\n`CONNECTION TRACE: '+Math.random().toString(16).slice(2,12).toUpperCase()+'`'},
+          {content:'🚨 **تنبيه أمني تجريبي**\nتم رصد نشاط غير معتاد على السيرفر. جارٍ فحص الأنظمة... '},
+          {content:'`[SECURITY] Unusual activity detected`\n`INITIALIZING DIAGNOSTIC TERMINAL...`'},
+          {content:'`ACCESS LOG: '+Math.random().toString(16).slice(2,10).toUpperCase()+'\nNODE: '+Math.floor(1000+Math.random()*9000)+' | STATUS: INVESTIGATING`'},
+          {content:'`CHECKING CHANNEL INTEGRITY... [########--] 80%`\n`CONNECTION TRACE: '+Math.random().toString(16).slice(2,12).toUpperCase()+'`'},
           {content:'😂 **مقلب! السيرفر بخير، ما صار أي اختراق.** هذه محاكاة للضحك فقط. لم نرسل رسائل خاصة ولم نغيّر صلاحيات أو رومات أخرى.'}
         ];
         const timers = [];
@@ -955,6 +955,17 @@ client.on('interactionCreate', async i => {
           if (/^(🎙️・فويس|💤・𝐀𝐅𝐊)$/.test(saved.name || '')) return 2;
           return 0;
         };
+        const legacyCategoryFor = name => {
+          const n = String(name || '').toLowerCase();
+          let categoryText = null;
+          if (/📜|القوانين|التحديثات|الأخبار|الفعاليات|الترحيب|rules/.test(n)) categoryText = 'عن السيرفر';
+          else if (/الدعم|التذكرة|الخاص|اصنع رومك|التحكم|السجل|moderator-only/.test(n)) categoryText = 'الدعم';
+          else if (/فويس|𝐀𝐅𝐊/.test(n)) categoryText = 'الصوتيات';
+          else if (/الشات|الميمز|ميديا|الرسم|العاب|روبلوكس|فالورنت|only friends/.test(n)) categoryText = 'الكتابات';
+          if (!categoryText) return null;
+          const category = backup.records.find(r => isSavedCategory(r) && String(r.name || '').includes(categoryText));
+          return category?.id || null;
+        };
         const orderedRecords = [...backup.records].sort((a, b) =>
           Number(isSavedCategory(b)) - Number(isSavedCategory(a)) ||
           (Number(a.position) || 0) - (Number(b.position) || 0)
@@ -966,6 +977,10 @@ client.on('interactionCreate', async i => {
             if (!ch) {
               const type = inferredType(saved);
               let parentId = saved.parentId ? (restoredIds.get(saved.parentId) || saved.parentId) : null;
+              if (!parentId && !Number.isInteger(saved.type)) {
+                const legacyParentId = legacyCategoryFor(saved.name);
+                if (legacyParentId) parentId = restoredIds.get(legacyParentId) || legacyParentId;
+              }
               if (parentId && !guild.channels.cache.has(parentId)) parentId = null;
               const createOptions = { name: saved.name, type, reason: 'Restore saved channel structure via /اعاده' };
               if (type !== 4 && parentId) createOptions.parent = parentId;
@@ -992,7 +1007,7 @@ client.on('interactionCreate', async i => {
         }
         const nextMeta = { ...backup.meta, active: false, restoredAt: new Date().toISOString() };
         await backup.metaMessage.edit(RENAME_META_MARKER + JSON.stringify(nextMeta));
-        return i.editReply('🔄 انتهت الاستعادة.\\n✅ رجعت أسماء: **' + restored + '**\\n🆕 أُعيد إنشاء رومات مفقودة: **' + recreated + '**\\n⏭️ سجلات غير صالحة: **' + skipped + '**\\n⚠️ تعذّر: **' + failed + '**\\n💾 احتفظت بالسجل.');
+        return i.editReply('🔄 انتهت الاستعادة.\n✅ رجعت أسماء: **' + restored + '**\n🆕 أُعيد إنشاء رومات مفقودة: **' + recreated + '**\n⏭️ سجلات غير صالحة: **' + skipped + '**\n⚠️ تعذّر: **' + failed + '**\n💾 احتفظت بالسجل.');
       } catch (e) {
         log('Channel rename/restore error: ' + (e?.stack || e));
         const messages = {
@@ -1134,7 +1149,7 @@ client.on('interactionCreate', async i => {
           log('Move members failed for ' + target.id + ': ' + e.message);
         }
       }
-      return i.editReply('🚚 **اكتمل النقل**\\nمن: '+source.toString()+'\\nإلى: '+destination.toString()+'\\n✅ تم نقل: **'+moved+'**\\n❌ تعذّر نقل: **'+failed+'**');
+      return i.editReply('🚚 **اكتمل النقل**\nمن: '+source.toString()+'\nإلى: '+destination.toString()+'\n✅ تم نقل: **'+moved+'**\n❌ تعذّر نقل: **'+failed+'**');
     }
 
     if (c === 'مؤثره') {
