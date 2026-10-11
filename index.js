@@ -534,14 +534,24 @@ async function getRenameBackup(storage) {
   catch { throw new Error('BACKUP_META_INVALID'); }
   if (!meta?.backupId || !Number.isInteger(meta.chunkCount)) throw new Error('BACKUP_META_INVALID');
   const dataMessages = ordered.filter(m => m.content.startsWith(RENAME_DATA_MARKER + meta.backupId + ':'));
-  const records = [];
+  const chunks = new Map();
   for (const message of dataMessages) {
-    const separator = message.content.indexOf(':', RENAME_DATA_MARKER.length + meta.backupId.length + 2);
-    if (separator < 0) continue;
+    const prefix = RENAME_DATA_MARKER + meta.backupId + ':';
+    const rest = message.content.slice(prefix.length);
+    const separator = rest.indexOf(':');
+    if (separator < 1) continue;
+    const chunkIndex = Number(rest.slice(0, separator));
+    if (!Number.isInteger(chunkIndex) || chunkIndex < 0) continue;
     try {
-      const chunk = JSON.parse(message.content.slice(separator + 1));
-      if (Array.isArray(chunk)) records.push(...chunk);
+      const chunk = JSON.parse(rest.slice(separator + 1));
+      if (Array.isArray(chunk)) chunks.set(chunkIndex, chunk);
     } catch { throw new Error('BACKUP_DATA_INVALID'); }
+  }
+  if (chunks.size !== meta.chunkCount) throw new Error('BACKUP_INCOMPLETE');
+  const records = [];
+  for (let n = 0; n < meta.chunkCount; n++) {
+    if (!chunks.has(n)) throw new Error('BACKUP_INCOMPLETE');
+    records.push(...chunks.get(n));
   }
   if (records.length !== meta.recordCount) throw new Error('BACKUP_INCOMPLETE');
   return { metaMessage, meta, records };
@@ -916,7 +926,14 @@ client.on('interactionCreate', async i => {
           }
           const originalChannels = [...guild.channels.cache.values()]
             .filter(ch => ch.id !== storage.id && typeof ch.setName === 'function')
-            .map(ch => ({ id: ch.id, name: ch.name }));
+            .map(ch => ({
+              id: ch.id,
+              name: ch.name,
+              type: ch.type,
+              parentId: ch.parentId || null,
+              position: ch.rawPosition ?? ch.position ?? 0,
+              topic: typeof ch.topic === 'string' ? ch.topic : null
+            }));
           await saveRenameBackup(storage, originalChannels, true);
           let changed = 0, failed = 0;
           for (const ch of guild.channels.cache.values()) {
@@ -927,16 +944,55 @@ client.on('interactionCreate', async i => {
           return i.editReply('✅ تم تغيير أسماء الرومات إلى **' + chosenName + '**.\n✏️ تغيّرت: **' + changed + '**\n⚠️ تعذّر: **' + failed + '**\n💾 حفظت الأسماء الأصلية داخل سجل خاص، وستبقى محفوظة حتى لو انطفأ البوت أو أُعيد تشغيله. استخدم /اعاده لاسترجاعها.');
         }
         if (!backup.meta?.active) return i.editReply('ℹ️ ما فيه أسماء محفوظة تحتاج استعادة. استخدم /تغير أولاً.');
-        let restored = 0, skipped = 0, failed = 0;
-        for (const saved of backup.records) {
-          const ch = guild.channels.cache.get(saved.id);
-          if (!ch || typeof ch.setName !== 'function') { skipped++; continue; }
-          try { if (ch.name !== saved.name) { await ch.setName(saved.name, 'Restore original channel names via /اعاده'); restored++; } }
-          catch (e) { failed++; log('Channel restore failed for ' + saved.id + ': ' + e.message); }
+        let restored = 0, recreated = 0, skipped = 0, failed = 0;
+        const restoredIds = new Map();
+        const isSavedCategory = saved =>
+          saved.type === 4 ||
+          (!Number.isInteger(saved.type) && /^╾━╤デ═一.*一═デ╤━╼?$/.test(saved.name || ''));
+        const inferredType = saved => {
+          if (Number.isInteger(saved.type) && [0, 2, 4, 5, 13].includes(saved.type)) return saved.type;
+          if (isSavedCategory(saved)) return 4;
+          if (/^(🎙️・فويس|💤・𝐀𝐅𝐊)$/.test(saved.name || '')) return 2;
+          return 0;
+        };
+        const orderedRecords = [...backup.records].sort((a, b) =>
+          Number(isSavedCategory(b)) - Number(isSavedCategory(a)) ||
+          (Number(a.position) || 0) - (Number(b.position) || 0)
+        );
+        for (const saved of orderedRecords) {
+          if (!saved || typeof saved.name !== 'string' || !saved.name.trim()) { skipped++; continue; }
+          let ch = saved.id ? guild.channels.cache.get(saved.id) : null;
+          try {
+            if (!ch) {
+              const type = inferredType(saved);
+              let parentId = saved.parentId ? (restoredIds.get(saved.parentId) || saved.parentId) : null;
+              if (parentId && !guild.channels.cache.has(parentId)) parentId = null;
+              const createOptions = { name: saved.name, type, reason: 'Restore saved channel structure via /اعاده' };
+              if (type !== 4 && parentId) createOptions.parent = parentId;
+              if (type === 0 || type === 5) {
+                if (saved.topic) createOptions.topic = saved.topic;
+              }
+              ch = await guild.channels.create(createOptions);
+              if (saved.id) restoredIds.set(saved.id, ch.id);
+              recreated++;
+            } else {
+              if (typeof ch.setName === 'function' && ch.name !== saved.name) {
+                await ch.setName(saved.name, 'Restore original channel names via /اعاده');
+                restored++;
+              }
+              if (Number.isInteger(saved.type) && ch.type !== saved.type) {
+                log('Restore note: channel type differs for saved channel ' + saved.id + '; leaving existing type unchanged.');
+              }
+            }
+            if (ch && saved.id) restoredIds.set(saved.id, ch.id);
+          } catch (e) {
+            failed++;
+            log('Channel restore failed for ' + (saved.id || saved.name) + ': ' + e.message);
+          }
         }
         const nextMeta = { ...backup.meta, active: false, restoredAt: new Date().toISOString() };
         await backup.metaMessage.edit(RENAME_META_MARKER + JSON.stringify(nextMeta));
-        return i.editReply('🔄 انتهت الاستعادة.\n✅ رجعت أسماء: **' + restored + '**\n⏭️ رومات محذوفة/غير متاحة: **' + skipped + '**\n⚠️ تعذّر تغيير: **' + failed + '**\n💾 السجل محفوظ، ويمكنك استخدام /تغير مرة ثانية.');
+        return i.editReply('🔄 انتهت الاستعادة.\\n✅ رجعت أسماء: **' + restored + '**\\n🆕 أُعيد إنشاء رومات مفقودة: **' + recreated + '**\\n⏭️ سجلات غير صالحة: **' + skipped + '**\\n⚠️ تعذّر: **' + failed + '**\\n💾 احتفظت بالسجل.');
       } catch (e) {
         log('Channel rename/restore error: ' + (e?.stack || e));
         const messages = {
