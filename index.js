@@ -533,10 +533,41 @@ async function getRenameBackup(storage) {
   try { meta = JSON.parse(metaMessage.content.slice(RENAME_META_MARKER.length)); }
   catch { throw new Error('BACKUP_META_INVALID'); }
   if (!meta?.backupId || !Number.isInteger(meta.chunkCount)) throw new Error('BACKUP_META_INVALID');
-  const dataMessages = ordered.filter(m => m.content.startsWith(RENAME_DATA_MARKER + meta.backupId + ':'));
+  // First try the exact backup ID in metadata. If it points to a missing
+  // data set, recover a matching guild backup from the stored data messages.
+  let selectedBackupId = meta.backupId;
+  let dataMessages = ordered.filter(m => m.content.startsWith(RENAME_DATA_MARKER + selectedBackupId + ':'));
+  if (!dataMessages.length) {
+    const groups = new Map();
+    for (const message of ordered) {
+      if (!message.content.startsWith(RENAME_DATA_MARKER)) continue;
+      const restAll = message.content.slice(RENAME_DATA_MARKER.length);
+      const firstColon = restAll.indexOf(':');
+      if (firstColon < 1) continue;
+      const candidateId = restAll.slice(0, firstColon);
+      if (!candidateId.endsWith('-' + storage.guild.id)) continue;
+      if (!groups.has(candidateId)) groups.set(candidateId, []);
+      groups.get(candidateId).push(message);
+    }
+    const candidates = [...groups.entries()].map(([id, items]) => ({ id, items }))
+      .sort((a, b) => Math.max(...b.items.map(m => m.createdTimestamp)) - Math.max(...a.items.map(m => m.createdTimestamp)));
+    const usable = candidates.find(candidate => candidate.items.some(m => {
+      const rest = m.content.slice((RENAME_DATA_MARKER + candidate.id + ':').length);
+      const separator = rest.indexOf(':');
+      if (separator < 1) return false;
+      try { return Array.isArray(JSON.parse(rest.slice(separator + 1))); } catch { return false; }
+    }));
+    if (usable) {
+      selectedBackupId = usable.id;
+      dataMessages = usable.items;
+      meta.recoveryWarning = true;
+      meta.backupId = selectedBackupId;
+      log('Backup metadata ID had no data; falling back to stored backup ' + selectedBackupId + '.');
+    }
+  }
   const chunks = new Map();
   for (const message of dataMessages) {
-    const prefix = RENAME_DATA_MARKER + meta.backupId + ':';
+    const prefix = RENAME_DATA_MARKER + selectedBackupId + ':';
     const rest = message.content.slice(prefix.length);
     const separator = rest.indexOf(':');
     if (separator < 1) continue;
