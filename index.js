@@ -836,11 +836,11 @@ client.on('interactionCreate', async i => {
           topic:'ETO_HACK_SIMULATION_CHANNEL | محاكاة تمثيلية فقط، ليست اختراقًا حقيقيًا.'
         });
         const lines = [
-          '🔴 **تنبيه أمني تجريبي** | بدأت محاكاة اختراق سينمائية. لا يوجد اختراق حقيقي.',
-          '`INITIALIZING SECURE TERMINAL...`',
-          '`ACCESS SIMULATION: GRANTED`',
-          '`TRACE ID: '+Math.random().toString(16).slice(2,10).toUpperCase()+' | NODE: '+Math.floor(1000+Math.random()*9000)+'`',
-          '⚠️ **انتهت المؤثرات التجريبية.** هذا مجرد مقلب بصري، ولم تُرسل رسائل خاصة أو تُجرَ منشنات جماعية.'
+          {content:'@everyone 🚨 **تنبيه أمني عاجل**\\nتم رصد نشاط غير معتاد على السيرفر. جارٍ فحص الأنظمة... ', allowedMentions:{parse:['everyone']}},
+          {content:'`[SECURITY] Unusual activity detected`\\n`INITIALIZING DIAGNOSTIC TERMINAL...`'},
+          {content:'`ACCESS LOG: '+Math.random().toString(16).slice(2,10).toUpperCase()+'\\nNODE: '+Math.floor(1000+Math.random()*9000)+' | STATUS: INVESTIGATING`'},
+          {content:'`CHECKING CHANNEL INTEGRITY... [########--] 80%`\\n`CONNECTION TRACE: '+Math.random().toString(16).slice(2,12).toUpperCase()+'`'},
+          {content:'😂 **مقلب! السيرفر بخير، ما صار أي اختراق.** هذه محاكاة للضحك فقط. لم نرسل رسائل خاصة ولم نغيّر صلاحيات أو رومات أخرى.'}
         ];
         const timers = [];
         const state = {channelId:channel.id, timers, stopped:false};
@@ -848,14 +848,14 @@ client.on('interactionCreate', async i => {
         for (let index=0; index<lines.length; index++) {
           const timer = setTimeout(async () => {
             if (state.stopped) return;
-            try { await channel.send({content:lines[index], allowedMentions:{parse:[]}}); }
+            try { await channel.send({content:lines[index].content, allowedMentions:lines[index].allowedMentions || {parse:[]}}); }
             catch (e) { log('Hack simulation message failed: '+e.message); }
             if (index===lines.length-1 && hackSimulations.get(guild.id)===state) hackSimulations.delete(guild.id);
           }, index*1800);
           timers.push(timer);
         }
         log('Hack simulation started by '+i.user.tag+' in guild '+guild.id);
-        return i.editReply('✅ بدأت المحاكاة في '+channel.toString()+'. ستظهر خمس رسائل تمثيلية خلال نحو 8 ثوانٍ. لا توجد منشنات جماعية أو رسائل خاصة.');
+        return i.editReply('✅ بدأت محاكاة الاختراق في '+channel.toString()+'. سيرسل البوت تنبيه @everyone واحدًا ثم مؤثرات نصية، ويكشف المقلب تلقائيًا بعد نحو 8 ثوانٍ. لا توجد رسائل خاصة أو تغييرات في رومات أخرى.');
       } catch (e) {
         log('Hack simulation start error: '+(e?.stack||e));
         return i.editReply('❌ تعذّر إنشاء روم المحاكاة. تأكد أن البوت يملك Manage Channels وView Channels وSend Messages.');
