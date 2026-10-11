@@ -491,22 +491,14 @@ client.once('clientReady', async () => {
     {name:'سرعة',description:'عرض سرعة البوت'},
     {name:'تشغيل_اغنية',description:'اختيار وتشغيل أغنية'},
     {name:'ايقاف_الموسيقى',description:'إيقاف الموسيقى والخروج'},
-    {name:'العاب',description:'فتح قائمة الألعاب'},
     {name:'نقل_اعضاء',description:'نقل جميع الأعضاء من روم صوتي إلى روم آخر',options:[{name:'المصدر',description:'الروم الصوتي الذي تريد نقل الأعضاء منه',type:7,required:true,channel_types:[2,13]},{name:'الوجهة',description:'الروم الصوتي الذي تريد نقل الأعضاء إليه',type:7,required:true,channel_types:[2,13]}]},
     {name:'تكلم',description:'نشر نص واضح بالنيابة عن عضو',options:[{name:'العضو',description:'اختر العضو',type:6,required:true},{name:'الكلام',description:'النص الذي تريد نشره',type:3,required:true,max_length:1500}]},
     {name:'قصف',description:'اختيار قنبلة وتشغيلها في روم صوتي',options:[{name:'نوع_القنبلة',description:'اختر نوع القنبلة',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'}]},{name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
     {name:'اضافات',description:'اختيار وتشغيل إضافة مؤقتة',options:[{name:'اضافة',description:'اختر الإضافة',type:3,required:true,choices:[{name:'اتحاد سوفيتي 🫡',value:'soviet_union'}]}]},
     {name:'طرد_عضو',description:'طرد عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
     {name:'حظر_عضو',description:'حظر عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
-    {name:'مسح_رسائل',description:'حذف رسائل من الروم',options:[{name:'العدد',description:'1-100',type:4,required:true,min_value:1,max_value:100}]},
-    {name:'بطء_الدردشة',description:'تغيير بطء الدردشة',options:[{name:'الثواني',description:'0-21600',type:4,required:true,min_value:0,max_value:21600}]},
     {name:'قفل_الدردشة',description:'قفل الدردشة'},
     {name:'فتح_الدردشة',description:'فتح الدردشة'},
-    {name:'تفعيل_تذكير',description:'تذكير تفاعل كل 5 ساعات'},
-    {name:'ايقاف_تذكير',description:'إيقاف تذكير التفاعل'},
-    {name:'عداد_الأعضاء',description:'عداد الأعضاء النشطين'},
-    {name:'اعلان_للجميع',description:'إرسال إعلان للمشتركين',options:[{name:'النص',description:'الإعلان',type:3,required:true}]},
-    {name:'رسالة_خاصة',description:'إرسال رسالة خاصة لعضو',options:[{name:'العضو',description:'العضو',type:6,required:true},{name:'النص',description:'الرسالة',type:3,required:true}]},
     {name:'سجلات',description:'عرض سجلات البوت'},
     {name:'سحب_جائزة',description:'إرسال سحب جائزة في روم تختاره',options:[{name:'الروم',description:'الروم النصي',type:7,required:true,channel_types:[0]},{name:'النص',description:'نص الـ Giveaway',type:3,required:true,max_length:4000}]}
   ];
@@ -917,16 +909,6 @@ client.on('interactionCreate', async i => {
       }
     }
 
-    if (c === 'العاب') {
-      const menu=new StringSelectMenuBuilder().setCustomId('games_menu').setPlaceholder('🎮 اختر لعبة').addOptions(
-        {label:'مافيا',description:'4-12: ليلة وتصويت وأدوار',value:'mafia',emoji:'🔪'},
-        {label:'حجر ورقة مقص ضد بوت',description:'العب فوراً ضد البوت',value:'rps_bot',emoji:'🤖'},
-        {label:'حجر ورقة مقص ضد لاعب',description:'أنشئ مباراة وانتظر لاعباً',value:'rps_player',emoji:'👤'},
-        {label:'قتال لاعبين في الفويس',description:'لاعبان في نفس الروم والبوت يدخل معكم',value:'battle',emoji:'⚔️'}
-      );
-      return i.reply({content:'🎮 **قائمة الألعاب**\nاختر اللعبة:',components:[new ActionRowBuilder().addComponents(menu)]});
-    }
-
     if (c === 'تشغيل_اغنية') {
       const m = member(i);
       if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
@@ -957,51 +939,10 @@ client.on('interactionCreate', async i => {
       return i.reply((c==='طرد_عضو'?'👢 تم طرد ':'🔨 تم حظر ')+ '**'+u.tag+'**');
     }
 
-    if (c==='مسح_رسائل') {
-      if (!perms(i,PermissionsBitField.Flags.ManageMessages)) return i.reply({content:'❌ تحتاج Manage Messages.',flags:MessageFlags.Ephemeral});
-      await i.deferReply({flags:MessageFlags.Ephemeral});
-      const n=i.options.getInteger('العدد',true);
-      const deleted=await i.channel.bulkDelete(n,true);
-      return i.editReply('🧹 تم حذف **'+deleted.size+'** رسالة.');
-    }
-
-    if (c==='بطء_الدردشة') {
-      if (!perms(i,PermissionsBitField.Flags.ManageChannels)) return i.reply({content:'❌ تحتاج Manage Channels.',flags:MessageFlags.Ephemeral});
-      const n=i.options.getInteger('الثواني',true);
-      await i.channel.setRateLimitPerUser(n);
-      return i.reply('🐢 Slowmode: **'+n+' ثانية**.');
-    }
-
     if (c==='قفل_الدردشة' || c==='فتح_الدردشة') {
       if (!perms(i,PermissionsBitField.Flags.ManageChannels)) return i.reply({content:'❌ تحتاج Manage Channels.',flags:MessageFlags.Ephemeral});
       await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:c==='قفل_الدردشة'?false:null});
       return i.reply(c==='قفل_الدردشة'?'🔒 تم قفل الدردشة.':'🔓 تم فتح الدردشة.');
-    }
-
-    if (c==='تفعيل_تذكير') {
-      if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
-      if (chatTimers.has(i.channelId)) clearInterval(chatTimers.get(i.channelId));
-      const timer=setInterval(async()=>{try{await i.channel.send('@everyone تفاعلو 📢')}catch(e){log(e.message)}},5*60*60*1000);
-      chatTimers.set(i.channelId,timer);
-      return i.reply('📢 تم تشغيل التذكير كل 5 ساعات.');
-    }
-
-    if (c==='ايقاف_تذكير') {
-      if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
-      const t=chatTimers.get(i.channelId);
-      if (!t) return i.reply('ℹ️ ما فيه تذكير شغال هنا.');
-      clearInterval(t); chatTimers.delete(i.channelId);
-      return i.reply('🛑 تم إيقاف التذكير.');
-    }
-
-    if (c==='رسالة_خاصة' || c==='اعلان_للجميع') {
-      if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
-      await i.deferReply({flags:MessageFlags.Ephemeral});
-      const text=i.options.getString('النص',true);
-      let sent=0, failed=0;
-      const ids=c==='اعلان_للجميع'?[...(dmSubscribers.get(i.guildId)||new Set())]:[i.options.getUser('العضو',true).id];
-      for(const id of ids){try{const u=await client.users.fetch(id);await u.send('📢 **إعلان من '+i.guild.name+'**\\n\\n'+text);sent++}catch{failed++}}
-      return i.editReply('✅ أُرسلت: **'+sent+'** | ❌ فشلت: **'+failed+'**');
     }
 
     if (c==='سجلات') {
