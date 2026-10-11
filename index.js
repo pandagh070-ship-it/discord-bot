@@ -44,6 +44,7 @@ const rpsGames = new Map();
 const battleGames = new Map();
 const effectStates = new Map();
 const addonStates = new Map();
+const hackSimulations = new Map();
 
 function log(x) {
   const line = '[' + new Date().toISOString() + '] ' + x;
@@ -574,6 +575,8 @@ client.once('clientReady', async () => {
     {name:'سرعة',description:'عرض سرعة البوت'},
     {name:'تغير',description:'تغيير أسماء جميع الرومات مع حفظ الأسماء الأصلية',options:[{name:'الاسم',description:'الاسم الجديد الذي سيُستخدم لكل الرومات',type:3,required:true,min_length:1,max_length:100}]},
     {name:'اعاده',description:'استعادة أسماء الرومات المحفوظة سابقًا'},
+    {name:'تهكير',description:'تشغيل محاكاة اختراق سينمائية في روم منفصل'},
+    {name:'انهاء_التهكير',description:'إيقاف محاكاة الاختراق وحذف روم المحاكاة'},
     {name:'تشغيل_اغنية',description:'اختيار وتشغيل أغنية'},
     {name:'ايقاف_الموسيقى',description:'إيقاف الموسيقى والخروج'},
     {name:'نقل_اعضاء',description:'نقل جميع الأعضاء من روم صوتي إلى روم آخر',options:[{name:'المصدر',description:'الروم الصوتي الذي تريد نقل الأعضاء منه',type:7,required:true,channel_types:[2,13]},{name:'الوجهة',description:'الروم الصوتي الذي تريد نقل الأعضاء إليه',type:7,required:true,channel_types:[2,13]}]},
@@ -812,6 +815,76 @@ client.on('interactionCreate', async i => {
 
     if (!i.isChatInputCommand()) return;
     const c = i.commandName;
+
+    if (c === 'تهكير') {
+      if (!i.guild) return i.reply({content:'❌ هذا الأمر يعمل داخل السيرفر فقط.', flags:MessageFlags.Ephemeral});
+      if (!perms(i, PermissionsBitField.Flags.ManageChannels)) {
+        return i.reply({content:'❌ تحتاج صلاحية Manage Channels لاستخدام هذا الأمر.', flags:MessageFlags.Ephemeral});
+      }
+      const guild = i.guild;
+      const me = guild.members.me;
+      if (!me?.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+        return i.reply({content:'❌ البوت يحتاج صلاحية Manage Channels.', flags:MessageFlags.Ephemeral});
+      }
+      const existing = guild.channels.cache.find(ch => ch.type === 0 && ch.topic?.includes('ETO_HACK_SIMULATION_CHANNEL'));
+      if (existing) return i.reply({content:'⚠️ توجد محاكاة بالفعل في '+existing.toString()+' . استخدم /انهاء_التهكير أولاً.', flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      try {
+        const channel = await guild.channels.create({
+          name:'🔴-محاكاة-الاختراق',
+          type:0,
+          topic:'ETO_HACK_SIMULATION_CHANNEL | محاكاة تمثيلية فقط، ليست اختراقًا حقيقيًا.'
+        });
+        const lines = [
+          '🔴 **تنبيه أمني تجريبي** | بدأت محاكاة اختراق سينمائية. لا يوجد اختراق حقيقي.',
+          '`INITIALIZING SECURE TERMINAL...`',
+          '`ACCESS SIMULATION: GRANTED`',
+          '`TRACE ID: '+Math.random().toString(16).slice(2,10).toUpperCase()+' | NODE: '+Math.floor(1000+Math.random()*9000)+'`',
+          '⚠️ **انتهت المؤثرات التجريبية.** هذا مجرد مقلب بصري، ولم تُرسل رسائل خاصة أو تُجرَ منشنات جماعية.'
+        ];
+        const timers = [];
+        const state = {channelId:channel.id, timers, stopped:false};
+        hackSimulations.set(guild.id, state);
+        for (let index=0; index<lines.length; index++) {
+          const timer = setTimeout(async () => {
+            if (state.stopped) return;
+            try { await channel.send({content:lines[index], allowedMentions:{parse:[]}}); }
+            catch (e) { log('Hack simulation message failed: '+e.message); }
+            if (index===lines.length-1 && hackSimulations.get(guild.id)===state) hackSimulations.delete(guild.id);
+          }, index*1800);
+          timers.push(timer);
+        }
+        log('Hack simulation started by '+i.user.tag+' in guild '+guild.id);
+        return i.editReply('✅ بدأت المحاكاة في '+channel.toString()+'. ستظهر خمس رسائل تمثيلية خلال نحو 8 ثوانٍ. لا توجد منشنات جماعية أو رسائل خاصة.');
+      } catch (e) {
+        log('Hack simulation start error: '+(e?.stack||e));
+        return i.editReply('❌ تعذّر إنشاء روم المحاكاة. تأكد أن البوت يملك Manage Channels وView Channels وSend Messages.');
+      }
+    }
+
+    if (c === 'انهاء_التهكير') {
+      if (!i.guild) return i.reply({content:'❌ هذا الأمر يعمل داخل السيرفر فقط.', flags:MessageFlags.Ephemeral});
+      if (!perms(i, PermissionsBitField.Flags.ManageChannels)) {
+        return i.reply({content:'❌ تحتاج صلاحية Manage Channels لاستخدام هذا الأمر.', flags:MessageFlags.Ephemeral});
+      }
+      const guild = i.guild;
+      const channel = guild.channels.cache.find(ch => ch.type === 0 && ch.topic?.includes('ETO_HACK_SIMULATION_CHANNEL'));
+      if (!channel) return i.reply({content:'ℹ️ لا يوجد روم محاكاة نشط. إذا كان البوت قد أعيد تشغيله، تأكد من تحديث قائمة الرومات ثم جرّب مجددًا.', flags:MessageFlags.Ephemeral});
+      const state = hackSimulations.get(guild.id);
+      if (state) {
+        state.stopped = true;
+        for (const timer of state.timers) clearTimeout(timer);
+        hackSimulations.delete(guild.id);
+      }
+      try {
+        await channel.delete('انتهاء محاكاة الاختراق التمثيلية');
+        log('Hack simulation stopped by '+i.user.tag+' in guild '+guild.id);
+        return i.reply({content:'🛑 تم إيقاف المحاكاة وحذف رومها.', flags:MessageFlags.Ephemeral});
+      } catch (e) {
+        log('Hack simulation stop error: '+e.message);
+        return i.reply({content:'❌ لم أستطع حذف روم المحاكاة. تأكد أن البوت يملك Manage Channels.', flags:MessageFlags.Ephemeral});
+      }
+    }
 
     if (c === 'تغير' || c === 'اعاده') {
       if (!i.guild) return i.reply({content:'❌ هذا الأمر يعمل داخل السيرفر فقط.', flags:MessageFlags.Ephemeral});
