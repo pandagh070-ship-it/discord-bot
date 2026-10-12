@@ -1,5 +1,6 @@
 require('dotenv').config();
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -492,6 +493,23 @@ http.createServer((req,res) => {
   res.writeHead(200, {'Content-Type':'text/plain'});
   res.end('Discord bot is online.');
 }).listen(PORT, '0.0.0.0', () => log('HTTP server listening on ' + PORT));
+
+// Keep a free Render web service receiving HTTP traffic so its idle timer
+// does not suspend the Discord gateway connection. This is best-effort;
+// the bot still logs any failures and Discord reconnect logic remains active.
+const renderPublicUrl = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot-5a4b.onrender.com';
+setInterval(() => {
+  let request;
+  try {
+    request = https.get(new URL('/keepalive', renderPublicUrl), response => {
+      response.resume();
+    });
+    request.setTimeout(10000, () => request.destroy(new Error('keep-alive request timed out')));
+    request.on('error', error => log('Render keep-alive request failed: ' + error.message));
+  } catch (error) {
+    log('Render keep-alive setup failed: ' + error.message);
+  }
+}, 10 * 60 * 1000);
 
 
 // Persistent channel-name backup stored in a private Discord channel (survives Render restarts).
