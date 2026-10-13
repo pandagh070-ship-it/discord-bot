@@ -644,8 +644,8 @@ client.once('clientReady', async () => {
       {name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}
     ]},
     {name:'تشغيل-اغنيه',description:'اختيار وتشغيل أغنية'},
-    {name:'اطفاء-اغنيه',description:'إيقاف الموسيقى والخروج'},
-    {name:'العاب',description:'اختيار لعبة لتشغيلها في المتصفح'}
+    {name:'اطفاء-اغنيه',description:'إيقاف الأغنية والخروج من الروم الصوتي'},
+    {name:'العاب',description:'اختر لعبة لتشغيلها في المتصفح'}
   ];
 
   try {
@@ -659,26 +659,107 @@ client.once('clientReady', async () => {
 
 client.on('interactionCreate', async i => {
   try {
+    if (i.isChatInputCommand()) {
+      const c = i.commandName;
+
+      if (c === 'العاب') {
+        const menu = new StringSelectMenuBuilder()
+          .setCustomId('games_menu')
+          .setPlaceholder('🎮 اختر لعبة')
+          .addOptions([{label:'DOOM',description:'لعبة تصويب كلاسيكية تعمل في المتصفح',value:'doom',emoji:'🎮'}]);
+        return i.reply({
+          content:'🎮 **اختر اللعبة التي تريد تشغيلها:**',
+          components:[new ActionRowBuilder().addComponents(menu)],
+          flags:MessageFlags.Ephemeral
+        });
+      }
+
+      if (c === 'تشغيل-اغنيه') {
+        const m = member(i);
+        if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
+        const songs = getSongs();
+        if (!songs.length) return i.reply({content:'📭 ما فيه أغاني. أضف ملفات الصوت إلى مجلد songs.',flags:MessageFlags.Ephemeral});
+        const menu = new StringSelectMenuBuilder()
+          .setCustomId('music_pick')
+          .setPlaceholder('🎵 اختر أغنية')
+          .addOptions(songs.slice(0,25).map((f,n)=>({label:songLabel(f).slice(0,100),value:String(n)})));
+        const row = new ActionRowBuilder().addComponents(menu);
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('music_repeat_btn').setLabel('تكرار 🔁').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('music_stop_btn').setLabel('إيقاف').setEmoji('⏹️').setStyle(ButtonStyle.Danger)
+        );
+        return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
+      }
+
+      if (c === 'اطفاء-اغنيه') {
+        return i.reply({
+          content:stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى وخروج البوت.' : 'ما فيه موسيقى شغالة.',
+          flags:MessageFlags.Ephemeral
+        });
+      }
+
+      if (c === 'مؤثره') {
+        if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
+        const bombType = i.options.getString('نوع_القنبلة', true);
+        const channel = i.options.getChannel('الروم', true);
+        if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
+        const speedMode = bombType === 'speed';
+        const domainExpansionMode = bombType === 'domain_expansion';
+        const effects = domainExpansionMode ? getDomainExpansionFiles() : (speedMode ? getBombSpeedFiles() : getBombFiles());
+        const folderName = domainExpansionMode ? 'توسيع مجال' : (speedMode ? 'bomb speed' : 'bomb');
+        const durationMs = 6000;
+        if (!effects.length) return i.reply({content:'📭 مجلد **'+folderName+'** فارغ. ارفع ملف الصوت إليه في GitHub أولًا.',flags:MessageFlags.Ephemeral});
+        const file = domainExpansionMode ? effects[0] : (effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0]);
+        const cp = channel.permissionsFor(i.guild.members.me);
+        if (!cp?.has(PermissionsBitField.Flags.Connect) || !cp?.has(PermissionsBitField.Flags.Speak)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Connect و Speak في الروم المختار.',flags:MessageFlags.Ephemeral});
+        if (!cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ البوت يحتاج صلاحية Move Members لفصل الأعضاء من المكالمة.',flags:MessageFlags.Ephemeral});
+        await i.deferReply({flags:MessageFlags.Ephemeral});
+        try {
+          await playVoiceEffect({voice:{channel}}, file, i.guildId, durationMs, async voiceChannel => {
+            let disconnected = 0, failed = 0;
+            const targets = [...voiceChannel.members.values()].filter(m => m.id !== client.user.id && !m.user.bot);
+            for (const target of targets) {
+              try {
+                if (target.voice.channelId === voiceChannel.id) {
+                  await target.voice.disconnect('Timed /مؤثره voice-room action');
+                  disconnected++;
+                }
+              } catch (e) {
+                failed++;
+                log('VoiceEffect disconnect failed for ' + target.id + ': ' + e.message);
+              }
+            }
+            log('VoiceEffect (' + bombType + ') completed in ' + voiceChannel.id + ': disconnected=' + disconnected + ', failed=' + failed);
+          });
+          return i.editReply('🔊 بدأ **'+(domainExpansionMode ? 'توسيع مجال 🤞' : (speedMode ? 'قنبله خاطفه 💣' : 'قنبله نوويه 💣'))+'** في '+channel.toString()+'. بعد 6 ثوانٍ سيحاول البوت فصل الأعضاء البشر من المكالمة فقط، بدون ميوت أو طردهم من السيرفر.');
+        } catch (e) {
+          log('VoiceEffect command error: ' + e.stack);
+          return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Move Members ومن سلامة ملف الصوت.');
+        }
+      }
+      return;
+    }
+
+    if (i.isStringSelectMenu() && i.customId === 'games_menu') {
+      if (i.values[0] === 'doom') {
+        return i.update({
+          content:'🎮 **DOOM جاهزة للتشغيل!** افتح الرابط التالي والعب مباشرة في المتصفح، بدون تثبيت. هذه نسخة shareware المجانية من اللعبة.\nhttps://exebrowser.com/run/doom/',
+          components:[]
+        });
+      }
+    }
+
     if (i.isStringSelectMenu() && i.customId === 'music_pick') {
       const m = member(i);
       if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
       const songs = getSongs(), file = songs[Number(i.values[0])];
       if (!file) return i.reply({content:'❌ الأغنية غير موجودة.',flags:MessageFlags.Ephemeral});
       try {
-        await playSong(m, file, i.guildId);
+        await playSong(m,file,i.guildId);
         return i.update({content:'🎵 شغالة الآن: **'+songLabel(file)+'**',components:[]});
-      } catch (e) {
+      } catch(e) {
         log('Music start error: '+e.stack);
         return i.update({content:'❌ فشل تشغيل الأغنية: '+e.message,components:[]});
-      }
-    }
-
-    if (i.isStringSelectMenu() && i.customId === 'game_pick') {
-      if (i.values[0] === 'doom') {
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setLabel('🎮 العب DOOM الآن').setStyle(ButtonStyle.Link).setURL('https://sec.dos.zone/doom-dec-1993/')
-        );
-        return i.update({content:'💀 **DOOM (1993)**\nاللعبة تشتغل داخل المتصفح، بدون تثبيت. اضغط الزر لفتحها. على الكمبيوتر استخدم الأسهم للحركة وCtrl للإطلاق وSpace لفتح الأبواب.',components:[row]});
       }
     }
 
@@ -691,75 +772,13 @@ client.on('interactionCreate', async i => {
       const s = musicStates.get(i.guildId);
       if (!s) return i.reply({content:'❌ ما فيه أغنية شغالة.',flags:MessageFlags.Ephemeral});
       s.repeat = !s.repeat;
-      return i.reply({content:s.repeat ? '🔁 تم تفعيل تكرار الأغنية الحالية.' : '➡️ تم إيقاف التكرار.',flags:MessageFlags.Ephemeral});
-    }
-
-    if (!i.isChatInputCommand()) return;
-    const c = i.commandName;
-
-    if (c === 'مؤثره') {
-      if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
-      const bombType = i.options.getString('نوع_القنبلة', true);
-      const channel = i.options.getChannel('الروم', true);
-      if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
-      const speedMode = bombType === 'speed';
-      const domainExpansionMode = bombType === 'domain_expansion';
-      const effects = domainExpansionMode ? getDomainExpansionFiles() : (speedMode ? getBombSpeedFiles() : getBombFiles());
-      const folderName = domainExpansionMode ? 'توسيع مجال' : (speedMode ? 'bomb speed' : 'bomb');
-      const durationMs = 6000;
-      if (!effects.length) return i.reply({content:'📭 مجلد **'+folderName+'** فارغ. ارفع ملف الصوت إليه في GitHub أولًا.',flags:MessageFlags.Ephemeral});
-      const file = domainExpansionMode ? effects[0] : (effects.find(f => /tsar|bomba|قنبلة|انفجار/i.test(songLabel(f))) || effects[0]);
-      const cp = channel.permissionsFor(i.guild.members.me);
-      if (!cp?.has(PermissionsBitField.Flags.Connect) || !cp?.has(PermissionsBitField.Flags.Speak)) return i.reply({content:'❌ البوت يحتاج صلاحيتَي Connect و Speak في الروم المختار.',flags:MessageFlags.Ephemeral});
-      if (!cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ البوت يحتاج صلاحية Move Members لفصل الأعضاء من المكالمة.',flags:MessageFlags.Ephemeral});
-      await i.deferReply({flags:MessageFlags.Ephemeral});
-      try {
-        await playVoiceEffect({voice:{channel}}, file, i.guildId, durationMs, async voiceChannel => {
-          let disconnected = 0, failed = 0;
-          const targets = [...voiceChannel.members.values()].filter(m => m.id !== client.user.id && !m.user.bot);
-          for (const target of targets) {
-            try {
-              if (target.voice.channelId === voiceChannel.id) {
-                await target.voice.disconnect('Timed /مؤثره voice-room action');
-                disconnected++;
-              }
-            } catch (e) {
-              failed++;
-              log('VoiceEffect disconnect failed for ' + target.id + ': ' + e.message);
-            }
-          }
-          log('VoiceEffect (' + bombType + ') completed in ' + voiceChannel.id + ': disconnected=' + disconnected + ', failed=' + failed);
-        });
-        return i.editReply('🔊 بدأ **'+(domainExpansionMode ? 'توسيع مجال 🤞' : (speedMode ? 'قنبله خاطفه 💣' : 'قنبله نوويه 💣'))+'** في '+channel.toString()+'. بعد 6 ثوانٍ سيحاول البوت فصل الأعضاء البشر من المكالمة فقط، بدون إعطائهم ميوت أو طردهم من السيرفر.');
-      } catch (e) {
-        log('VoiceEffect command error: ' + e.stack);
-        return i.editReply('❌ تعذّر تشغيل المؤثر. تأكد من صلاحيات Connect و Speak و Move Members ومن سلامة ملف الصوت.');
-      }
-    }
-
-    if (c === 'تشغيل-اغنيه') {
-      const m = member(i);
-      if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
-      const songs = getSongs();
-      if (!songs.length) return i.reply({content:'📭 ما فيه أغاني. أضف ملفات الصوت إلى مجلد songs.',flags:MessageFlags.Ephemeral});
-      const menu = new StringSelectMenuBuilder().setCustomId('music_pick').setPlaceholder('🎵 اختر أغنية').addOptions(songs.slice(0,25).map((f,n)=>({label:songLabel(f).slice(0,100),value:String(n)})));
-      const row = new ActionRowBuilder().addComponents(menu);
-      const buttons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('music_repeat_btn').setLabel('تكرار 🔁').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('music_stop_btn').setLabel('إيقاف').setEmoji('⏹️').setStyle(ButtonStyle.Danger)
-      );
-      return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
-    }
-
-    if (c === 'اطفاء-اغنيه') {
-      return i.reply(stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى وخروج البوت.' : 'ما فيه موسيقى شغالة.');
-    }
-
-    if (c === 'العاب') {
-      const menu = new StringSelectMenuBuilder().setCustomId('game_pick').setPlaceholder('🎮 اختر لعبة').addOptions([
-        {label:'DOOM (1993)',description:'لعبة تصويب كلاسيكية تعمل في المتصفح',value:'doom',emoji:'💀'}
-      ]);
-      return i.reply({content:'🎮 **اختر اللعبة التي تريد تشغيلها:**',components:[new ActionRowBuilder().addComponents(menu)],flags:MessageFlags.Ephemeral});
+      return i.update({
+        content:'🎵 **'+songLabel(s.current)+'**\n'+(s.repeat?'🔁 التكرار: **مفعّل**':'➡️ التكرار: **متوقف**'),
+        components:[new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('music_repeat_btn').setLabel(s.repeat?'إلغاء التكرار':'تكرار 🔁').setStyle(s.repeat?ButtonStyle.Success:ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('music_stop_btn').setLabel('إيقاف').setEmoji('⏹️').setStyle(ButtonStyle.Danger)
+        )]
+      });
     }
   } catch(e) {
     log('Interaction error: '+e.stack);
