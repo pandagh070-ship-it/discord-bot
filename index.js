@@ -809,10 +809,15 @@ client.on('interactionCreate', async i => {
         let didiIdentityChanged = false;
         try {
           await botMember.setNickname('Didi 😎', 'Temporary Didi prank identity');
-          if (typeof botMember.setAvatar === 'function') await botMember.setAvatar(didiAvatarUrl, 'Temporary Didi prank avatar');
           didiIdentityChanged = true;
         } catch (identityError) {
-          log('Didi temporary identity update failed: ' + identityError.message);
+          log('Didi temporary nickname update failed: ' + identityError.message);
+        }
+        try {
+          if (typeof botMember.setAvatar === 'function') await botMember.setAvatar(didiAvatarUrl, 'Temporary Didi prank avatar');
+          else log('Didi guild avatar update is not supported by this discord.js version');
+        } catch (identityError) {
+          log('Didi temporary avatar update failed: ' + identityError.message);
         }
         await i.reply({
           embeds:[new EmbedBuilder()
