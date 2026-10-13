@@ -636,6 +636,9 @@ client.once('clientReady', async () => {
   log('Bot online as ' + client.user.tag);
 
   const commands = [
+    {name:'didi',description:'Didi voice-channel prank',options:[
+      {name:'member',description:'Choose a member',type:6,required:true}
+    ]},
     {name:'soviet-union',description:'Run the Soviet Union voice-channel effect'},
     {name:'effects',description:'Play a voice effect in a voice channel',options:[
       {name:'bomb_type',description:'Choose an effect',type:3,required:true,choices:[
@@ -781,6 +784,85 @@ client.on('interactionCreate', async i => {
           content:stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى وخروج البوت.' : 'ما فيه موسيقى شغالة.',
           flags:MessageFlags.Ephemeral
         });
+      }
+
+      if (c === 'didi') {
+        if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
+        const target = i.options.getMember('member');
+        if (!target || target.user.bot) return i.reply({content:'❌ اختر عضوًا حقيقيًا من السيرفر.',flags:MessageFlags.Ephemeral});
+        const sourceChannel = target.voice?.channel;
+        if (!sourceChannel) return i.reply({content:'🎙️ العضو المختار ليس داخل روم صوتي.',flags:MessageFlags.Ephemeral});
+        const guild = i.guild;
+        const botMember = guild.members.me;
+        if (!perms(i, PermissionsBitField.Flags.MoveMembers) ||
+            !botMember?.permissions.has(PermissionsBitField.Flags.ManageChannels) ||
+            !botMember?.permissions.has(PermissionsBitField.Flags.MoveMembers)) {
+          return i.reply({content:'❌ تحتاج أنت والبوت صلاحيات Move Members، والبوت يحتاج Manage Channels.',flags:MessageFlags.Ephemeral});
+        }
+        const sourcePerms = sourceChannel.permissionsFor(botMember);
+        if (!sourcePerms?.has(PermissionsBitField.Flags.Connect) || !sourcePerms?.has(PermissionsBitField.Flags.Speak)) {
+          return i.reply({content:'❌ البوت يحتاج Connect و Speak في روم العضو الحالي.',flags:MessageFlags.Ephemeral});
+        }
+        await i.reply({
+          embeds:[new EmbedBuilder()
+            .setTitle('Didi 😎')
+            .setDescription('Didi is here… 3 seconds.')
+            .setImage('https://images.90s90s.de/files/2025-12/imago77593699.jpg?crop=4478%2C3359%2C0%2C0&crop=faces&dpr=3&fit=crop&fm=webp&h=375&height=1125&rect=0%2C0%2C4478%2C3359&w=500&width=1500')
+            .setColor(0x222222)],
+          flags:MessageFlags.Ephemeral
+        });
+        let connection = null;
+        let privateChannel = null;
+        try {
+          connection = joinVoiceChannel({
+            channelId:sourceChannel.id,
+            guildId:guild.id,
+            adapterCreator:guild.voiceAdapterCreator,
+            selfDeaf:false,
+            selfMute:false
+          });
+          await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          if (!target.voice?.channelId || target.voice.channelId !== sourceChannel.id) {
+            try { connection.destroy(); } catch {}
+            return i.followUp({content:'⚠️ العضو غادر الروم قبل انتهاء الثلاث ثواني.',flags:MessageFlags.Ephemeral});
+          }
+          privateChannel = await guild.channels.create({
+            name:'Didi 🔒',
+            type:2,
+            parent:sourceChannel.parentId || undefined,
+            permissionOverwrites:[
+              {id:guild.roles.everyone.id,deny:[PermissionsBitField.Flags.ViewChannel,PermissionsBitField.Flags.Connect]},
+              {id:target.id,allow:[PermissionsBitField.Flags.ViewChannel,PermissionsBitField.Flags.Connect,PermissionsBitField.Flags.Speak]},
+              {id:botMember.id,allow:[PermissionsBitField.Flags.ViewChannel,PermissionsBitField.Flags.Connect,PermissionsBitField.Flags.Speak,PermissionsBitField.Flags.MoveMembers]}
+            ],
+            reason:'Temporary Didi voice prank'
+          });
+          await target.voice.setChannel(privateChannel, 'Didi voice prank');
+          try { connection.destroy(); } catch {}
+          connection = joinVoiceChannel({
+            channelId:privateChannel.id,
+            guildId:guild.id,
+            adapterCreator:guild.voiceAdapterCreator,
+            selfDeaf:false,
+            selfMute:false
+          });
+          await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+          await i.followUp({content:'😎 **Didi** أخذ ' + target.toString() + ' إلى روم خاص، والبوت لحقه: ' + privateChannel.toString() + '. سيُحذف الروم تلقائيًا بعد دقيقة.',flags:MessageFlags.Ephemeral});
+          setTimeout(async () => {
+            try { connection?.destroy(); } catch {}
+            try {
+              const fresh = await guild.channels.fetch(privateChannel.id).catch(() => null);
+              if (fresh) await fresh.delete('Didi temporary room cleanup');
+            } catch (e) { log('Didi room cleanup failed: ' + e.message); }
+          }, 60000);
+        } catch (e) {
+          log('Didi command error: ' + (e?.stack || e));
+          try { connection?.destroy(); } catch {}
+          try { if (privateChannel) await privateChannel.delete('Didi setup failed').catch(() => {}); } catch {}
+          await i.followUp({content:'❌ تعذّر تنفيذ Didi. تأكد من صلاحيات Connect و Speak و Move Members و Manage Channels.',flags:MessageFlags.Ephemeral}).catch(() => {});
+        }
+        return;
       }
 
       if (c === 'soviet-union') {
