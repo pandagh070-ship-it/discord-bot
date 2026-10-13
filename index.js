@@ -688,8 +688,8 @@ function doomView(game){
     rows.push(row);
   }
   const enemy=game.enemies.find(e=>(game.dir===0&&e.x===game.x&&e.y<game.y)||(game.dir===1&&e.y===game.y&&e.x>game.x)||(game.dir===2&&e.x===game.x&&e.y>game.y)||(game.dir===3&&e.y===game.y&&e.x<game.x));
-  if(enemy){const dist=Math.abs(enemy.x-game.x)+Math.abs(enemy.y-game.y);if(dist>0&&dist<7){const center=4,r=Math.max(0,Math.min(height-1,Math.floor(height/2+(dist-2)*0.35)));rows[r]=rows[r].slice(0,center)+'👾'+rows[r].slice(center+1);}}
-  return rows.join('\\n');
+  if(enemy){const dist=Math.abs(enemy.x-game.x)+Math.abs(enemy.y-game.y);if(dist>0&&dist<7){const center=4,r=Math.max(0,Math.min(height-1,Math.floor(height/2+(dist-2)*0.35)));rows[r]=rows[r].slice(0,center*2)+'👾'+rows[r].slice((center+1)*2);}}
+  return rows.join('\n');
 }
 function doomControls(){
   return [
@@ -705,7 +705,7 @@ function doomControls(){
 }
 function doomMessage(game,prefix){
   const fence=String.fromCharCode(96).repeat(3);
-  return (prefix||'🎮 **DOOM Emoji FPS | منظور شبه ثلاثي الأبعاد**')+'\\n❤️ الصحة: **'+game.hp+'**   👾 الأعداء المتبقون: **'+game.enemies.length+'**\\n'+fence+'\\n'+doomView(game)+'\\n'+fence+'\\n⬅️➡️ لفّ، ⬆️ تقدّم، 🔫 أطلق النار. لعبة إيموجي بمنظور شبه ثلاثي الأبعاد داخل ديسكورد.';
+  return (prefix||'🎮 **DOOM Emoji FPS | منظور شبه ثلاثي الأبعاد**')+'\n❤️ الصحة: **'+game.hp+'**   👾 الأعداء المتبقون: **'+game.enemies.length+'**\n'+fence+'\n'+doomView(game)+'\n'+fence+'\n⬅️➡️ لفّ، ⬆️ تقدّم، 🔫 أطلق النار. لعبة إيموجي بمنظور شبه ثلاثي الأبعاد داخل ديسكورد.';
 }
 
 client.on('interactionCreate', async i => {
