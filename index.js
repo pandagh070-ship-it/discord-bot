@@ -636,7 +636,7 @@ client.once('clientReady', async () => {
   log('Bot online as ' + client.user.tag);
 
   const commands = [
-    {name:'bombing',description:'Play a voice effect in a voice channel',options:[
+    {name:'effects',description:'Play a voice effect in a voice channel',options:[
       {name:'bomb_type',description:'Choose an effect',type:3,required:true,choices:[
         {name:'قنبله نوويه 💣',value:'normal'},
         {name:'قنبله خاطفه 💣',value:'speed'},
@@ -782,7 +782,7 @@ client.on('interactionCreate', async i => {
         });
       }
 
-      if (c === 'bombing') {
+      if (c === 'effects') {
         if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
         const bombType = i.options.getString('bomb_type', true);
         const channel = i.options.getChannel('channel', true);
@@ -805,7 +805,7 @@ client.on('interactionCreate', async i => {
             for (const target of targets) {
               try {
                 if (target.voice.channelId === voiceChannel.id) {
-                  await target.voice.disconnect('Timed /bombing voice-room action');
+                  await target.voice.disconnect('Timed /effects voice-room action');
                   disconnected++;
                 }
               } catch (e) {
