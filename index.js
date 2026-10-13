@@ -805,7 +805,8 @@ client.on('interactionCreate', async i => {
         }
         const didiAvatarUrl = 'https://images.90s90s.de/files/2025-12/imago77593699.jpg?crop=4478%2C3359%2C0%2C0&crop=faces&dpr=3&fit=crop&fm=webp&h=375&height=1125&rect=0%2C0%2C4478%2C3359&w=500&width=1500';
         const oldBotNickname = botMember.nickname;
-        const oldBotAvatarUrl = botMember.displayAvatarURL({ extension:'png', size:1024 });
+        const oldBotGuildAvatar = botMember.avatar;
+        const oldBotAvatarUrl = oldBotGuildAvatar ? botMember.displayAvatarURL({ extension:'png', size:1024 }) : null;
         let didiIdentityChanged = false;
         try {
           await botMember.setNickname('Didi 😎', 'Temporary Didi prank identity');
@@ -814,8 +815,7 @@ client.on('interactionCreate', async i => {
           log('Didi temporary nickname update failed: ' + identityError.message);
         }
         try {
-          if (typeof botMember.setAvatar === 'function') await botMember.setAvatar(didiAvatarUrl, 'Temporary Didi prank avatar');
-          else log('Didi guild avatar update is not supported by this discord.js version');
+          await botMember.edit({ avatar:didiAvatarUrl }, 'Temporary Didi prank avatar');
         } catch (identityError) {
           log('Didi temporary avatar update failed: ' + identityError.message);
         }
@@ -874,7 +874,7 @@ client.on('interactionCreate', async i => {
             if (didiIdentityChanged) {
               try { await botMember.setNickname(oldBotNickname, 'Restore bot nickname after Didi prank'); }
               catch (e) { log('Didi nickname restore failed: ' + e.message); }
-              try { if (typeof botMember.setAvatar === 'function') await botMember.setAvatar(oldBotAvatarUrl, 'Restore bot avatar after Didi prank'); }
+              try { await botMember.edit({ avatar:oldBotGuildAvatar ? oldBotAvatarUrl : null }, 'Restore bot avatar after Didi prank'); }
               catch (e) { log('Didi avatar restore failed: ' + e.message); }
             }
           }, 60000);
