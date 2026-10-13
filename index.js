@@ -636,17 +636,17 @@ client.once('clientReady', async () => {
   log('Bot online as ' + client.user.tag);
 
   const commands = [
-    {name:'مؤثره',description:'اختيار مؤثر صوتي وتشغيله في روم صوتي',options:[
-      {name:'نوع_القنبلة',description:'اختر المؤثر الصوتي',type:3,required:true,choices:[
+    {name:'bombing',description:'Play a voice effect in a voice channel',options:[
+      {name:'bomb_type',description:'Choose an effect',type:3,required:true,choices:[
         {name:'قنبله نوويه 💣',value:'normal'},
         {name:'قنبله خاطفه 💣',value:'speed'},
         {name:'توسيع مجال 🤞',value:'domain_expansion'}
       ]},
-      {name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}
+      {name:'channel',description:'Choose a voice channel',type:7,required:true,channel_types:[2,13]}
     ]},
-    {name:'تشغيل-اغنيه',description:'اختيار وتشغيل أغنية'},
-    {name:'اطفاء-اغنيه',description:'إيقاف الأغنية والخروج من الروم الصوتي'},
-    {name:'العاب',description:'اختر DOOM وافتح رابط اللعبة في المتصفح'}
+    {name:'play-song',description:'Choose and play a song'},
+    {name:'stop-song',description:'Stop music and leave the voice channel'},
+    {name:'play.com',description:'Choose DOOM and open the browser game'}
   ];
 
   try {
@@ -746,7 +746,7 @@ client.on('interactionCreate', async i => {
     if (i.isChatInputCommand()) {
       const c = i.commandName;
 
-      if (c === 'العاب') {
+      if (c === 'play.com') {
         const menu = new StringSelectMenuBuilder()
           .setCustomId('games_menu')
           .setPlaceholder('🎮 اختر لعبة')
@@ -758,7 +758,7 @@ client.on('interactionCreate', async i => {
         });
       }
 
-      if (c === 'تشغيل-اغنيه') {
+      if (c === 'play-song') {
         const m = member(i);
         if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
         const songs = getSongs();
@@ -775,17 +775,17 @@ client.on('interactionCreate', async i => {
         return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
       }
 
-      if (c === 'اطفاء-اغنيه') {
+      if (c === 'stop-song') {
         return i.reply({
           content:stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى وخروج البوت.' : 'ما فيه موسيقى شغالة.',
           flags:MessageFlags.Ephemeral
         });
       }
 
-      if (c === 'مؤثره') {
+      if (c === 'bombing') {
         if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
-        const bombType = i.options.getString('نوع_القنبلة', true);
-        const channel = i.options.getChannel('الروم', true);
+        const bombType = i.options.getString('bomb_type', true);
+        const channel = i.options.getChannel('channel', true);
         if (!channel.isVoiceBased?.() || !channel.guild) return i.reply({content:'❌ اختر رومًا صوتيًا صالحًا.',flags:MessageFlags.Ephemeral});
         const speedMode = bombType === 'speed';
         const domainExpansionMode = bombType === 'domain_expansion';
@@ -805,7 +805,7 @@ client.on('interactionCreate', async i => {
             for (const target of targets) {
               try {
                 if (target.voice.channelId === voiceChannel.id) {
-                  await target.voice.disconnect('Timed /مؤثره voice-room action');
+                  await target.voice.disconnect('Timed /bombing voice-room action');
                   disconnected++;
                 }
               } catch (e) {
@@ -837,7 +837,7 @@ client.on('interactionCreate', async i => {
 
     if (i.isButton() && i.customId.startsWith('maze3d_')) {
       const game=maze3dGames.get(i.user.id);
-      if(!game)return i.reply({content:'انتهت جلستك. استخدم /العاب لبدء مغامرة جديدة.',flags:MessageFlags.Ephemeral});
+      if(!game)return i.reply({content:'انتهت جلستك. Use /play.com to start a new game.',flags:MessageFlags.Ephemeral});
       if(i.customId==='maze3d_exit'){maze3dGames.delete(i.user.id);return i.update({content:'🛑 انتهت مغامرة NEON MAZE 3D.',components:[]});}
       if(i.customId==='maze3d_left')game.dir=(game.dir+3)%4;
       else if(i.customId==='maze3d_right')game.dir=(game.dir+1)%4;
@@ -861,7 +861,7 @@ client.on('interactionCreate', async i => {
         if(target){game.enemies=game.enemies.filter(e=>e!==target);}
         else game.hp=Math.max(0,game.hp-2);
       }
-      if(game.hp<=0){maze3dGames.delete(i.user.id);return i.update({content:'💀 **انتهت المغامرة!** استُنفدت صحتك. استخدم /العاب للمحاولة مجددًا.',components:[]});}
+      if(game.hp<=0){maze3dGames.delete(i.user.id);return i.update({content:'💀 **انتهت المغامرة!** استُنفدت صحتك. Use /play.com to try again.',components:[]});}
       if(game.x===game.exit.x&&game.y===game.exit.y){
         if(game.collected>=game.crystalGoal){maze3dGames.delete(i.user.id);return i.update({content:'🏆 **نجحت في الهروب من NEON MAZE 3D!** جمعت البلورات ووجدت المخرج.',components:[]});}
         return i.update({content:maze3dMessage(game,'🚪 **المخرج مقفل!** اجمع البلورات الثلاث أولًا.'),components:maze3dControls()});
