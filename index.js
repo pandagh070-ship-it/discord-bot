@@ -646,7 +646,7 @@ client.once('clientReady', async () => {
     ]},
     {name:'play-song',description:'Choose and play a song'},
     {name:'stop-song',description:'Stop music and leave the voice channel'},
-    {name:'play.com',description:'Choose DOOM and open the browser game'}
+    {name:'play-com',description:'Choose DOOM and open the browser game'}
   ];
 
   try {
@@ -746,7 +746,7 @@ client.on('interactionCreate', async i => {
     if (i.isChatInputCommand()) {
       const c = i.commandName;
 
-      if (c === 'play.com') {
+      if (c === 'play-com') {
         const menu = new StringSelectMenuBuilder()
           .setCustomId('games_menu')
           .setPlaceholder('🎮 اختر لعبة')
@@ -837,7 +837,7 @@ client.on('interactionCreate', async i => {
 
     if (i.isButton() && i.customId.startsWith('maze3d_')) {
       const game=maze3dGames.get(i.user.id);
-      if(!game)return i.reply({content:'انتهت جلستك. Use /play.com to start a new game.',flags:MessageFlags.Ephemeral});
+      if(!game)return i.reply({content:'انتهت جلستك. Use /play-com to start a new game.',flags:MessageFlags.Ephemeral});
       if(i.customId==='maze3d_exit'){maze3dGames.delete(i.user.id);return i.update({content:'🛑 انتهت مغامرة NEON MAZE 3D.',components:[]});}
       if(i.customId==='maze3d_left')game.dir=(game.dir+3)%4;
       else if(i.customId==='maze3d_right')game.dir=(game.dir+1)%4;
@@ -861,7 +861,7 @@ client.on('interactionCreate', async i => {
         if(target){game.enemies=game.enemies.filter(e=>e!==target);}
         else game.hp=Math.max(0,game.hp-2);
       }
-      if(game.hp<=0){maze3dGames.delete(i.user.id);return i.update({content:'💀 **انتهت المغامرة!** استُنفدت صحتك. Use /play.com to try again.',components:[]});}
+      if(game.hp<=0){maze3dGames.delete(i.user.id);return i.update({content:'💀 **انتهت المغامرة!** استُنفدت صحتك. Use /play-com to try again.',components:[]});}
       if(game.x===game.exit.x&&game.y===game.exit.y){
         if(game.collected>=game.crystalGoal){maze3dGames.delete(i.user.id);return i.update({content:'🏆 **نجحت في الهروب من NEON MAZE 3D!** جمعت البلورات ووجدت المخرج.',components:[]});}
         return i.update({content:maze3dMessage(game,'🚪 **المخرج مقفل!** اجمع البلورات الثلاث أولًا.'),components:maze3dControls()});
