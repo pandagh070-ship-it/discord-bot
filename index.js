@@ -635,24 +635,17 @@ client.once('clientReady', async () => {
   log('Bot online as ' + client.user.tag);
 
   const commands = [
-    {name:'شغل',description:'إعادة تشغيل بوت Render (لرتبة Start bot فقط)'},
-    {name:'سرعة',description:'عرض سرعة البوت'},
-    {name:'تغير',description:'تغيير أسماء جميع الرومات مع حفظ الأسماء الأصلية',options:[{name:'الاسم',description:'الاسم الجديد الذي سيُستخدم لكل الرومات',type:3,required:true,min_length:1,max_length:100}]},
-    {name:'اعاده',description:'استعادة أسماء الرومات المحفوظة سابقًا'},
-    {name:'تهكير',description:'تشغيل محاكاة اختراق سينمائية في روم منفصل'},
-    {name:'انهاء_التهكير',description:'إيقاف محاكاة الاختراق وحذف روم المحاكاة'},
-    {name:'تشغيل_اغنية',description:'اختيار وتشغيل أغنية'},
-    {name:'ايقاف_الموسيقى',description:'إيقاف الموسيقى والخروج'},
-    {name:'نقل_اعضاء',description:'نقل جميع الأعضاء من روم صوتي إلى روم آخر',options:[{name:'المصدر',description:'الروم الصوتي الذي تريد نقل الأعضاء منه',type:7,required:true,channel_types:[2,13]},{name:'الوجهة',description:'الروم الصوتي الذي تريد نقل الأعضاء إليه',type:7,required:true,channel_types:[2,13]}]},
-    {name:'تكلم',description:'نشر نص واضح بالنيابة عن عضو',options:[{name:'العضو',description:'اختر العضو',type:6,required:true},{name:'الكلام',description:'النص الذي تريد نشره',type:3,required:true,max_length:1500}]},
-    {name:'مؤثره',description:'اختيار مؤثر صوتي وتشغيله في روم صوتي',options:[{name:'نوع_القنبلة',description:'اختر المؤثر الصوتي',type:3,required:true,choices:[{name:'قنبله نوويه 💣',value:'normal'},{name:'قنبله خاطفه 💣',value:'speed'},{name:'توسيع مجال 🤞',value:'domain_expansion'}]},{name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}]},
-    {name:'اضافات',description:'اختيار وتشغيل إضافة مؤقتة',options:[{name:'اضافة',description:'اختر الإضافة',type:3,required:true,choices:[{name:'اتحاد سوفيتي 🫡',value:'soviet_union'}]}]},
-    {name:'طرد_عضو',description:'طرد عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
-    {name:'حظر_عضو',description:'حظر عضو من السيرفر',options:[{name:'العضو',description:'العضو',type:6,required:true}]},
-    {name:'قفل_الدردشة',description:'قفل الدردشة'},
-    {name:'فتح_الدردشة',description:'فتح الدردشة'},
-    {name:'سجلات',description:'عرض سجلات البوت'},
-    {name:'سحب_جائزة',description:'إرسال سحب جائزة في روم تختاره',options:[{name:'الروم',description:'الروم النصي',type:7,required:true,channel_types:[0]},{name:'النص',description:'نص الـ Giveaway',type:3,required:true,max_length:4000}]}
+    {name:'مؤثره',description:'اختيار مؤثر صوتي وتشغيله في روم صوتي',options:[
+      {name:'نوع_القنبلة',description:'اختر المؤثر الصوتي',type:3,required:true,choices:[
+        {name:'قنبله نوويه 💣',value:'normal'},
+        {name:'قنبله خاطفه 💣',value:'speed'},
+        {name:'توسيع مجال 🤞',value:'domain_expansion'}
+      ]},
+      {name:'الروم',description:'اختر الروم الصوتي',type:7,required:true,channel_types:[2,13]}
+    ]},
+    {name:'تشغيل-اغنيه',description:'اختيار وتشغيل أغنية'},
+    {name:'اطفاء-اغنيه',description:'إيقاف الموسيقى والخروج'},
+    {name:'العاب',description:'اختيار لعبة لتشغيلها في المتصفح'}
   ];
 
   try {
@@ -672,11 +665,20 @@ client.on('interactionCreate', async i => {
       const songs = getSongs(), file = songs[Number(i.values[0])];
       if (!file) return i.reply({content:'❌ الأغنية غير موجودة.',flags:MessageFlags.Ephemeral});
       try {
-        await playSong(m,file,i.guildId);
+        await playSong(m, file, i.guildId);
         return i.update({content:'🎵 شغالة الآن: **'+songLabel(file)+'**',components:[]});
-      } catch(e) {
+      } catch (e) {
         log('Music start error: '+e.stack);
         return i.update({content:'❌ فشل تشغيل الأغنية: '+e.message,components:[]});
+      }
+    }
+
+    if (i.isStringSelectMenu() && i.customId === 'game_pick') {
+      if (i.values[0] === 'doom') {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setLabel('🎮 العب DOOM الآن').setStyle(ButtonStyle.Link).setURL('https://sec.dos.zone/doom-dec-1993/')
+        );
+        return i.update({content:'💀 **DOOM (1993)**\nاللعبة تشتغل داخل المتصفح، بدون تثبيت. اضغط الزر لفتحها. على الكمبيوتر استخدم الأسهم للحركة وCtrl للإطلاق وSpace لفتح الأبواب.',components:[row]});
       }
     }
 
@@ -689,608 +691,11 @@ client.on('interactionCreate', async i => {
       const s = musicStates.get(i.guildId);
       if (!s) return i.reply({content:'❌ ما فيه أغنية شغالة.',flags:MessageFlags.Ephemeral});
       s.repeat = !s.repeat;
-      return i.update({
-        content:'🎵 **'+songLabel(s.current)+'**\n'+(s.repeat?'🔁 التكرار: **مفعّل**':'➡️ التكرار: **متوقف**'),
-        components:[
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('music_repeat_btn').setLabel(s.repeat?'إلغاء التكرار':'تكرار 🔁').setStyle(s.repeat?ButtonStyle.Success:ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('music_stop_btn').setLabel('إيقاف').setEmoji('⏹️').setStyle(ButtonStyle.Danger)
-          )
-        ]
-      });
-    }
-
-
-
-    if (i.isStringSelectMenu() && i.customId === 'games_menu') {
-      const choice = i.values[0];
-      if (choice === 'rps_bot') {
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('rps_bot_rock').setLabel('حجر').setEmoji('🪨').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('rps_bot_paper').setLabel('ورقة').setEmoji('📄').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('rps_bot_scissors').setLabel('مقص').setEmoji('✂️').setStyle(ButtonStyle.Primary)
-        );
-        return i.update({content:'🪨📄✂️ اختر حركتك ضد البوت:',components:[row]});
-      }
-      if (choice === 'rps_player') {
-        const key = i.guildId + ':rps';
-        const old = rpsGames.get(key);
-        if (old) return i.update({content:'⏳ توجد مباراة حجر ورقة مقص تنتظر لاعباً آخر.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('rps_join').setLabel('انضم للمباراة').setStyle(ButtonStyle.Success))]});
-        rpsGames.set(key,{host:i.user.id,player:null,channelId:i.channelId});
-        return i.update({content:'🪨📄✂️ تم إنشاء مباراة ضد لاعب. اضغط انضمام.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('rps_join').setLabel('انضم للمباراة').setStyle(ButtonStyle.Success))]});
-      }
-      if (choice === 'battle') {
-        const channel = i.member?.voice?.channel;
-        if (!channel) return i.update({content:'🎙️ لازم تدخل روم فويس أولاً.',components:[]});
-        const members = [...channel.members.values()].filter(m => !m.user.bot);
-        if (members.length !== 2) return i.update({content:'⚔️ لازم يكون **لاعبين اثنين فقط** في نفس روم الفويس.',components:[]});
-        const key = i.guildId + ':battle';
-        if (battleGames.has(key)) return i.update({content:'⚔️ توجد معركة شغالة بالفعل.',components:[]});
-        const [p1,p2]=members;
-        const song=findSong('GOJO');
-        if (!song) return i.update({content:'❌ ما لقيت أغنية القتال في مجلد songs.',components:[]});
-        try {
-          await playSong(i.member, song, i.guildId);
-        } catch(e) {
-          log('Battle music start error: '+e.stack);
-          return i.update({content:'❌ فشل دخول البوت للروم أو تشغيل أغنية القتال.',components:[]});
-        }
-        const g={guildId:i.guildId,channelId:i.channelId,voiceChannelId:channel.id,players:[p1.id,p2.id],hp:{[p1.id]:100,[p2.id]:100},turn:p1.id,song};
-        battleGames.set(key,g);
-        const row=new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('battle_attack').setLabel('هجوم ⚔️').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId('battle_heal').setLabel('استرجاع ❤️').setStyle(ButtonStyle.Success)
-        );
-        return i.update({content:'⚔️ **بدأت معركة اللاعبين!**\n🎙️ الروم: <#'+channel.id+'>\n👤 <@'+p1.id+'> ضد <@'+p2.id+'>\n\n❤️ كل لاعب يبدأ بـ **100 HP**\n🎵 البوت دخل الروم وشغّل أغنية القتال.\n\n🎯 الدور الآن: <@'+g.turn+'>',components:[row]});
-      }
-
-      if (choice === 'mafia') {
-        const key=i.guildId+':mafia'; let g=gameLobbies.get(key);
-        if(!g){g={host:i.user.id,players:new Set([i.user.id]),channelId:i.channelId};gameLobbies.set(key,g);}
-        return i.update({content:'🔪 **مافيا: غرفة الانتظار**\n👥 **'+g.players.size+'/12** لاعبين\n🎯 الحد الأدنى: **4**\n\n🌙 ليلة • ☀️ نهار • 🗳️ تصويت • 💉 طبيب • 🔎 محقق',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('mafia_join').setLabel('انضم').setEmoji('👤').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId('mafia_start').setLabel('بدء اللعبة').setEmoji('▶️').setStyle(ButtonStyle.Primary))]});
-      }
-    }
-
-    if (i.isButton() && i.customId.startsWith('rps_bot_')) {
-      const userMove=i.customId.replace('rps_bot_','');
-      const botMove=['rock','paper','scissors'][Math.floor(Math.random()*3)];
-      const beats={rock:'scissors',paper:'rock',scissors:'paper'};
-      const names={rock:'🪨 حجر',paper:'📄 ورقة',scissors:'✂️ مقص'};
-      const result=userMove===botMove?'🤝 تعادل':beats[userMove]===botMove?'🏆 فزت!':'🤖 البوت فاز!';
-      return i.update({content:'🪨📄✂️ **حجر ورقة مقص**\nأنت: '+names[userMove]+'\nالبوت: '+names[botMove]+'\n\n'+result,components:[]});
-    }
-
-    if (i.isButton() && i.customId === 'rps_join') {
-      const key=i.guildId+':rps', g=rpsGames.get(key);
-      if (!g) return i.reply({content:'❌ المباراة انتهت.',flags:MessageFlags.Ephemeral});
-      if (g.host===i.user.id) return i.reply({content:'❌ أنت منشئ المباراة.',flags:MessageFlags.Ephemeral});
-      if (g.player) return i.reply({content:'❌ المباراة مكتملة.',flags:MessageFlags.Ephemeral});
-      g.player=i.user.id;
-      const row=new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('rps_pick_rock').setLabel('حجر').setEmoji('🪨').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('rps_pick_paper').setLabel('ورقة').setEmoji('📄').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('rps_pick_scissors').setLabel('مقص').setEmoji('✂️').setStyle(ButtonStyle.Primary)
-      );
-      return i.update({content:'🪨📄✂️ **المباراة بدأت!**\n<@'+g.host+'> و <@'+g.player+'>\nكل لاعب يضغط حركته. الاختيارات سرية.',components:[row]});
-    }
-
-    if (i.isButton() && i.customId.startsWith('rps_pick_')) {
-      const key=i.guildId+':rps', g=rpsGames.get(key);
-      if (!g || !g.player) return i.reply({content:'❌ لا توجد مباراة نشطة.',flags:MessageFlags.Ephemeral});
-      if (i.user.id!==g.host && i.user.id!==g.player) return i.reply({content:'❌ لست من لاعبي المباراة.',flags:MessageFlags.Ephemeral});
-      const move=i.customId.replace('rps_pick_','');
-      g.moves=g.moves||{};
-      g.moves[i.user.id]=move;
-      await i.reply({content:'✅ تم تسجيل حركتك.',flags:MessageFlags.Ephemeral});
-      if (g.moves[g.host] && g.moves[g.player]) {
-        const a=g.moves[g.host], b=g.moves[g.player], beats={rock:'scissors',paper:'rock',scissors:'paper'};
-        const names={rock:'🪨 حجر',paper:'📄 ورقة',scissors:'✂️ مقص'};
-        const result=a===b?'🤝 تعادل':beats[a]===b?'<@'+g.host+'> 🏆 فاز!':'<@'+g.player+'> 🏆 فاز!';
-        await i.channel.send('🪨📄✂️ **نتيجة المباراة**\n<@'+g.host+'>: '+names[a]+'\n<@'+g.player+'>: '+names[b]+'\n'+result);
-        rpsGames.delete(key);
-      }
-      return;
-    }
-
-    if (i.isButton() && (i.customId === 'battle_attack' || i.customId === 'battle_heal')) {
-      const key=i.guildId+':battle', g=battleGames.get(key);
-      if (!g) return i.reply({content:'❌ لا توجد معركة نشطة.',flags:MessageFlags.Ephemeral});
-      const channel=i.guild.channels.cache.get(g.voiceChannelId);
-      const voiceMember=channel?.members?.get(i.user.id);
-      if (!g.players.includes(i.user.id)) return i.reply({content:'❌ أنت لست من لاعبي المعركة.',flags:MessageFlags.Ephemeral});
-      if (i.user.id!==g.turn) return i.reply({content:'⏳ ليس دورك الآن.',flags:MessageFlags.Ephemeral});
-      if (!voiceMember) return i.reply({content:'🎙️ يجب أن تبقى داخل روم الفويس أثناء المعركة.',flags:MessageFlags.Ephemeral});
-
-      const enemy=g.players.find(id=>id!==i.user.id);
-      if (i.customId==='battle_attack') {
-        const damage=battleDamage();
-        g.hp[enemy]=Math.max(0,g.hp[enemy]-damage);
-
-        if (g.hp[enemy]===0) {
-          stopMusic(i.guildId);
-          battleGames.delete(key);
-          return i.update({
-            content:'🏆 **━━━━━━━━ انتهت المعركة ━━━━━━━━**🏆\n\n⚔️ <@'+i.user.id+'> وجّه ضربة بقوة **'+damage+'**!\n💀 <@'+enemy+'> سقط في المعركة.\n\n🎵 تم إيقاف موسيقى القتال.\n🚪 البوت غادر الروم.\n\n🏆 الفائز: <@'+i.user.id+'>',
-            components:[]
-          });
-        }
-
-        g.turn=enemy;
-        return i.update({
-          content:'⚔️ **━━━━━━━━ معركة اللاعبين ━━━━━━━━** ⚔️\n\n👤 <@'+i.user.id+'>\n♥️ الصحة: **'+g.hp[i.user.id]+'**\n\n⚔️ الهجوم: **-'+damage+'**\n💥 الضرر يتراوح من **10 إلى 50**\n📉 الضربات الأقوى احتمالها أقل.\n\n👤 <@'+enemy+'>\n♥️ الصحة: **'+g.hp[enemy]+'**\n\n━━━━━━━━━━━━━━━━━━━━\n🎯 الدور الآن: <@'+g.turn+'>\n\n⚔️ **هجوم** = ضرر عشوائي\n❤️ **استرجاع** = +10 إلى +20 HP\n📌 الحد الأقصى للصحة: **100**',
-          components:[battleRow()]
-        });
-      }
-
-      const heal=Math.floor(Math.random()*11)+10;
-      const before=g.hp[i.user.id];
-      g.hp[i.user.id]=Math.min(100,g.hp[i.user.id]+heal);
-      const actualHeal=g.hp[i.user.id]-before;
-      g.turn=enemy;
-      return i.update({
-        content:'❤️ **━━━━━━━━ استرجاع ━━━━━━━━** ❤️\n\n👤 <@'+i.user.id+'>\n♥️ الصحة: **'+before+' → '+g.hp[i.user.id]+'**\n✨ استعاد **+'+actualHeal+' HP**\n\n👤 <@'+enemy+'>\n♥️ الصحة: **'+g.hp[enemy]+'**\n\n━━━━━━━━━━━━━━━━━━━━\n🎯 الدور الآن: <@'+g.turn+'>\n\n⚔️ الهجوم: **10–50**\n❤️ الاسترجاع: **10–20**\n🏁 الهدف: خفّض صحة خصمك إلى **0**',
-        components:[battleRow()]
-      });
-    }
-
-    if (i.isButton() && i.customId === 'mafia_join') {
-      const key=i.guildId+':mafia',g=gameLobbies.get(key);
-      if(!g)return i.reply({content:'❌ لا توجد غرفة مافيا.',flags:MessageFlags.Ephemeral});
-      if(g.started)return i.reply({content:'❌ اللعبة بدأت.',flags:MessageFlags.Ephemeral});
-      if(g.players.has(i.user.id))return i.reply({content:'❌ أنت منضم بالفعل.',flags:MessageFlags.Ephemeral});
-      if(g.players.size>=12)return i.reply({content:'❌ الغرفة مكتملة.',flags:MessageFlags.Ephemeral});
-      g.players.add(i.user.id);
-      return i.update({content:'🔪 **مافيا: غرفة الانتظار**\n👥 **'+g.players.size+'/12** لاعبين',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('mafia_join').setLabel('انضم').setEmoji('👤').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId('mafia_start').setLabel('بدء اللعبة').setEmoji('▶️').setStyle(ButtonStyle.Primary))]});
-    }
-
-    if(i.isButton()&&i.customId==='mafia_start'){
-      const key=i.guildId+':mafia',l=gameLobbies.get(key);
-      if(!l)return i.reply({content:'❌ لا توجد غرفة.',flags:MessageFlags.Ephemeral});
-      if(l.host!==i.user.id)return i.reply({content:'❌ منشئ الغرفة فقط.',flags:MessageFlags.Ephemeral});
-      if(l.players.size<4)return i.reply({content:'⏳ تحتاج 4 لاعبين على الأقل.',flags:MessageFlags.Ephemeral});
-      const players=[...l.players],n=mafiaRoleCount(players.length),sh=[...players].sort(()=>Math.random()-.5),roles={};
-      sh.forEach((id,x)=>roles[id]=x<n.mafia?'mafia':x<n.mafia+n.doctor?'doctor':x<n.mafia+n.doctor+n.detective?'detective':'citizen');
-      const g={guildId:i.guildId,channelId:i.channelId,players,roles,alive:new Set(players),phase:'starting',night:{},votes:{}};
-      mafiaGames.set(key,g);gameLobbies.delete(key);
-      for(const id of players){try{const u=await client.users.fetch(id);await u.send('🔐 **دورك:** '+mafiaRoleName(roles[id])+'\n\n'+(roles[id]==='mafia'?'اقضِ على المواطنين.':roles[id]==='doctor'?'أنقذ لاعباً كل ليلة.':roles[id]==='detective'?'حقق في لاعب كل ليلة.':'اكشف المافيا وصوّت عليها.')+'\n⚠️ لا تكشف دورك.');}catch{}}
-      await i.update({content:'🔪 **بدأت المافيا!**\n👥 اللاعبين: **'+players.length+'**\n🔪 مافيا: **'+n.mafia+'** | 💉 طبيب: **'+n.doctor+'** | 🔎 محقق: **'+n.detective+'**\n📩 الأدوار في الخاص.\n🌙 تبدأ الليلة الأولى.',components:[]});
-      await mafiaNightStart(g);return;
-    }
-
-    if(i.isButton()&&i.customId.startsWith('mafia_night_')){
-      const key=i.guildId+':mafia',g=mafiaGames.get(key);if(!g||g.phase!=='night')return i.reply({content:'❌ الليل غير نشط.',flags:MessageFlags.Ephemeral});
-      if(!g.alive.has(i.user.id))return i.reply({content:'💀 أنت ميت.',flags:MessageFlags.Ephemeral});
-      const p=i.customId.split('_'),role=p[2],target=p[3];
-      if(g.roles[i.user.id]!==role)return i.reply({content:'❌ هذا القرار ليس لدورك.',flags:MessageFlags.Ephemeral});
-      if(!g.alive.has(target))return i.reply({content:'❌ الهدف غير حي.',flags:MessageFlags.Ephemeral});
-      if(role==='mafia')g.night.mafiaTarget=target;if(role==='doctor')g.night.doctorTarget=target;if(role==='detective')g.night.detectiveTarget=target;
-      await i.reply({content:'✅ تم تسجيل قرارك.',flags:MessageFlags.Ephemeral});
-      const need=['mafia'];if([...g.alive].some(id=>g.roles[id]==='doctor'))need.push('doctor');if([...g.alive].some(id=>g.roles[id]==='detective'))need.push('detective');
-      if(need.every(x=>g.night[x+'Target']))await mafiaNightResolve(g);return;
-    }
-
-    if(i.isButton()&&i.customId.startsWith('mafia_vote_')){
-      const key=i.guildId+':mafia',g=mafiaGames.get(key);if(!g||g.phase!=='day')return i.reply({content:'❌ التصويت مغلق.',flags:MessageFlags.Ephemeral});
-      if(!g.alive.has(i.user.id))return i.reply({content:'💀 الميت لا يصوّت.',flags:MessageFlags.Ephemeral});
-      const target=i.customId.replace('mafia_vote_','');if(!g.alive.has(target)||target===i.user.id)return i.reply({content:'❌ اختر لاعباً آخر.',flags:MessageFlags.Ephemeral});
-      g.votes[i.user.id]=target;await i.reply({content:'🗳️ تم تسجيل تصويتك.',flags:MessageFlags.Ephemeral});
-      const alive=mafiaAlive(g);if(alive.every(id=>g.votes[id])){const counts={};alive.forEach(id=>{const t=g.votes[id];counts[t]=(counts[t]||0)+1;});const max=Math.max(...Object.values(counts)),w=Object.keys(counts).filter(id=>counts[id]===max),ch=await client.channels.fetch(g.channelId).catch(()=>null);if(w.length!==1){g.votes={};if(ch)await ch.send('🤝 **تعادل!** لا أحد يخرج.\n🌙 ليلة جديدة.');await mafiaNightStart(g);return;}const out=w[0];g.alive.delete(out);if(ch)await ch.send('🗳️ **نتيجة التصويت:** 💀 <@'+out+'> خرج وكان **'+mafiaRoleName(g.roles[out])+'**.');if(await mafiaCheckWin(g))return;await mafiaNightStart(g);}return;
+      return i.reply({content:s.repeat ? '🔁 تم تفعيل تكرار الأغنية الحالية.' : '➡️ تم إيقاف التكرار.',flags:MessageFlags.Ephemeral});
     }
 
     if (!i.isChatInputCommand()) return;
     const c = i.commandName;
-
-    if (c === 'تهكير') {
-      if (!i.guild) return i.reply({content:'❌ هذا الأمر يعمل داخل السيرفر فقط.', flags:MessageFlags.Ephemeral});
-      if (!perms(i, PermissionsBitField.Flags.ManageChannels)) {
-        return i.reply({content:'❌ تحتاج صلاحية Manage Channels لاستخدام هذا الأمر.', flags:MessageFlags.Ephemeral});
-      }
-      const guild = i.guild;
-      const me = guild.members.me;
-      if (!me?.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-        return i.reply({content:'❌ البوت يحتاج صلاحية Manage Channels.', flags:MessageFlags.Ephemeral});
-      }
-      const existing = guild.channels.cache.find(ch => ch.type === 0 && ch.topic?.includes('ETO_HACK_SIMULATION_CHANNEL'));
-      if (existing) return i.reply({content:'⚠️ توجد محاكاة بالفعل في '+existing.toString()+' . استخدم /انهاء_التهكير أولاً.', flags:MessageFlags.Ephemeral});
-      await i.deferReply({flags:MessageFlags.Ephemeral});
-      try {
-        const channel = await guild.channels.create({
-          name:'🔴-محاكاة-الاختراق',
-          type:0,
-          topic:'ETO_HACK_SIMULATION_CHANNEL | محاكاة تمثيلية فقط، ليست اختراقًا حقيقيًا.'
-        });
-        const lines = [
-          {content:'🚨 **تنبيه أمني تجريبي**\nتم رصد نشاط غير معتاد على السيرفر. جارٍ فحص الأنظمة... '},
-          {content:'`[SECURITY] Unusual activity detected`\n`INITIALIZING DIAGNOSTIC TERMINAL...`'},
-          {content:'`ACCESS LOG: '+Math.random().toString(16).slice(2,10).toUpperCase()+'\nNODE: '+Math.floor(1000+Math.random()*9000)+' | STATUS: INVESTIGATING`'},
-          {content:'`CHECKING CHANNEL INTEGRITY... [########--] 80%`\n`CONNECTION TRACE: '+Math.random().toString(16).slice(2,12).toUpperCase()+'`'},
-          {content:'😂 **مقلب! السيرفر بخير، ما صار أي اختراق.** هذه محاكاة للضحك فقط. لم نرسل رسائل خاصة ولم نغيّر صلاحيات أو رومات أخرى.'}
-        ];
-        const timers = [];
-        const state = {channelId:channel.id, timers, stopped:false};
-        hackSimulations.set(guild.id, state);
-        for (let index=0; index<lines.length; index++) {
-          const timer = setTimeout(async () => {
-            if (state.stopped) return;
-            try { await channel.send({content:lines[index].content, allowedMentions:lines[index].allowedMentions || {parse:[]}}); }
-            catch (e) { log('Hack simulation message failed: '+e.message); }
-            if (index===lines.length-1 && hackSimulations.get(guild.id)===state) hackSimulations.delete(guild.id);
-          }, index*1800);
-          timers.push(timer);
-        }
-        log('Hack simulation started by '+i.user.tag+' in guild '+guild.id);
-        return i.editReply('✅ بدأت محاكاة الاختراق في '+channel.toString()+'. سيرسل البوت تنبيهًا ثم مؤثرات نصية، ويكشف المقلب تلقائيًا بعد نحو 8 ثوانٍ. لا توجد رسائل خاصة أو تغييرات في رومات أخرى.');
-      } catch (e) {
-        log('Hack simulation start error: '+(e?.stack||e));
-        return i.editReply('❌ تعذّر إنشاء روم المحاكاة. تأكد أن البوت يملك Manage Channels وView Channels وSend Messages.');
-      }
-    }
-
-    if (c === 'انهاء_التهكير') {
-      if (!i.guild) return i.reply({content:'❌ هذا الأمر يعمل داخل السيرفر فقط.', flags:MessageFlags.Ephemeral});
-      if (!perms(i, PermissionsBitField.Flags.ManageChannels)) {
-        return i.reply({content:'❌ تحتاج صلاحية Manage Channels لاستخدام هذا الأمر.', flags:MessageFlags.Ephemeral});
-      }
-      const guild = i.guild;
-      const channel = guild.channels.cache.find(ch => ch.type === 0 && ch.topic?.includes('ETO_HACK_SIMULATION_CHANNEL'));
-      if (!channel) return i.reply({content:'ℹ️ لا يوجد روم محاكاة نشط. إذا كان البوت قد أعيد تشغيله، تأكد من تحديث قائمة الرومات ثم جرّب مجددًا.', flags:MessageFlags.Ephemeral});
-      const state = hackSimulations.get(guild.id);
-      if (state) {
-        state.stopped = true;
-        for (const timer of state.timers) clearTimeout(timer);
-        hackSimulations.delete(guild.id);
-      }
-      try {
-        await channel.delete('انتهاء محاكاة الاختراق التمثيلية');
-        log('Hack simulation stopped by '+i.user.tag+' in guild '+guild.id);
-        return i.reply({content:'🛑 تم إيقاف المحاكاة وحذف رومها.', flags:MessageFlags.Ephemeral});
-      } catch (e) {
-        log('Hack simulation stop error: '+e.message);
-        return i.reply({content:'❌ لم أستطع حذف روم المحاكاة. تأكد أن البوت يملك Manage Channels.', flags:MessageFlags.Ephemeral});
-      }
-    }
-
-    if (c === 'تغير' || c === 'اعاده') {
-      if (!i.guild) return i.reply({content:'❌ هذا الأمر يعمل داخل السيرفر فقط.', flags:MessageFlags.Ephemeral});
-      if (!perms(i, PermissionsBitField.Flags.ManageChannels)) {
-        return i.reply({content:'❌ تحتاج صلاحية Manage Channels لاستخدام هذا الأمر.', flags:MessageFlags.Ephemeral});
-      }
-      const guild = i.guild;
-      const me = guild.members.me;
-      if (!me?.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-        return i.reply({content:'❌ البوت يحتاج صلاحية Manage Channels.', flags:MessageFlags.Ephemeral});
-      }
-      await i.deferReply({flags:MessageFlags.Ephemeral});
-      try {
-        await guild.channels.fetch();
-
-        // /اعاده now applies the user's fixed channel-name list directly.
-        // It does not depend on a previous /تغير backup being active.
-        if (c === 'اعاده') {
-          const savedChannels = [
-            { id: '1554494567254982758', name: '╾━╤デ═一 عن السيرفر 一═デ╤━', type: 4 },
-            { id: '1554494652600684544', name: '╾━╤デ═一 الكتابات 一═デ╤━╼', type: 4 },
-            { id: '1554494754824130680', name: '╾━╤デ═一 الدعم 一═デ╤━╼', type: 4 },
-            { id: '1554499544585342976', name: '╾━╤デ═一 الصوتيات 一═デ╤━╼', type: 4 },
-            { id: '1554499720380940388', name: '💬・الشات', type: 0, parent: 'الكتابات' },
-            { id: '1554499801951899721', name: '😂・الميمز', type: 0, parent: 'الكتابات' },
-            { id: '1554499867286573097', name: '📸・ميديا', type: 0, parent: 'الكتابات' },
-            { id: '1554499910714269756', name: '🎨・الرسم', type: 0, parent: 'الكتابات' },
-            { id: '1554499986962522263', name: '🎙️・فويس', type: 2, parent: 'الصوتيات' },
-            { id: '1554500051806453760', name: '💤・𝐀𝐅𝐊', type: 2, parent: 'الصوتيات' },
-            { id: '1554500358448095262', name: '🎮・العاب', type: 0, parent: 'الكتابات' },
-            { id: '1554500444980641792', name: '🔒・الخاص', type: 0, parent: 'الدعم' },
-            { id: '1554500963518386289', name: '📜・القوانين', type: 0, parent: 'عن السيرفر' },
-            { id: '1554501104287486035', name: '🎫・التذكرة', type: 0, parent: 'الدعم' },
-            { id: '1554501187049496586', name: '📌・التحديثات', type: 0, parent: 'عن السيرفر' },
-            { id: '1554501231727349760', name: '📰・الأخبار', type: 0, parent: 'عن السيرفر' },
-            { id: '1554501326736457739', name: '🎉・الفعاليات', type: 0, parent: 'عن السيرفر' },
-            { id: '1554501788021821531', name: '👋・الترحيب', type: 0, parent: 'عن السيرفر' },
-            { id: '1554507252407476264', name: '🎮・روبلوكس', type: 0, parent: 'الكتابات' },
-            { id: '1554507484037914645', name: '🔫・فالورنت', type: 0, parent: 'الكتابات' },
-            { id: '1554914822808805480', name: '(only friends)', type: 0, parent: 'الكتابات' },
-            { id: '1555596224483295253', name: '➕・اصنع رومك', type: 0, parent: 'الدعم' },
-            { id: '1555596226286723103', name: '⚙️・التحكم', type: 0, parent: 'الدعم' },
-            { id: '1555947689286312107', name: '🗂・السجل', type: 0, parent: 'الدعم' },
-            { id: '1555952100767301776', name: 'rules', type: 0, parent: 'عن السيرفر' },
-            { id: '1555952101316890655', name: 'moderator-only', type: 0, parent: 'الدعم' },
-            { id: '1556038118472290455', name: '🟢・نشيطين', type: 0, parent: 'عن السيرفر' }
-          ];
-          const categoryNames = {
-            'عن السيرفر': savedChannels[0].name,
-            'الكتابات': savedChannels[1].name,
-            'الدعم': savedChannels[2].name,
-            'الصوتيات': savedChannels[3].name
-          };
-          const categories = new Map();
-          let renamed = 0, created = 0, failed = 0;
-          // Rename existing IDs where possible; create a replacement if a saved channel was deleted.
-          for (const saved of savedChannels.filter(ch => ch.type === 4)) {
-            try {
-              let channel = guild.channels.cache.get(saved.id);
-              if (channel && channel.type !== 4) channel = null;
-              if (!channel) {
-                channel = guild.channels.cache.find(ch => ch.type === 4 && ch.name === saved.name);
-              }
-              if (channel) {
-                if (channel.name !== saved.name) { await channel.setName(saved.name, 'Apply fixed /اعاده channel list'); renamed++; }
-              } else {
-                channel = await guild.channels.create({ name: saved.name, type: 4, reason: 'Recreate fixed channel list via /اعاده' });
-                created++;
-              }
-              categories.set(saved.name === categoryNames['عن السيرفر'] ? 'عن السيرفر' :
-                saved.name === categoryNames['الكتابات'] ? 'الكتابات' :
-                saved.name === categoryNames['الدعم'] ? 'الدعم' : 'الصوتيات', channel.id);
-            } catch (e) { failed++; log('Fixed restore category failed for ' + saved.name + ': ' + e.message); }
-          }
-          for (const saved of savedChannels.filter(ch => ch.type !== 4)) {
-            try {
-              let channel = guild.channels.cache.get(saved.id);
-              if (channel && channel.type !== saved.type) channel = null;
-              if (!channel) channel = guild.channels.cache.find(ch => ch.type === saved.type && ch.name === saved.name);
-              const options = { name: saved.name, type: saved.type, reason: 'Apply fixed /اعاده channel list' };
-              const parentId = categories.get(saved.parent);
-              if (parentId && saved.type !== 2) options.parent = parentId;
-              if (channel) {
-                if (channel.name !== saved.name) { await channel.setName(saved.name, 'Apply fixed /اعاده channel list'); renamed++; }
-                if (parentId && channel.parentId !== parentId && saved.type !== 2) await channel.setParent(parentId, { reason: 'Restore category placement via /اعاده' });
-              } else {
-                if (parentId) options.parent = parentId;
-                await guild.channels.create(options);
-                created++;
-              }
-            } catch (e) { failed++; log('Fixed restore channel failed for ' + saved.name + ': ' + e.message); }
-          }
-          return i.editReply('✅ تم تطبيق أسماء الرومات التي أرسلتها.\n✏️ تم تغيير الأسماء: **' + renamed + '**\n🆕 تم إنشاء رومات مفقودة: **' + created + '**\n⚠️ تعذّر: **' + failed + '**');
-        }
-
-        const storage = await getRenameStorageChannel(guild, c === 'تغير');
-        if (!storage) return i.editReply('📭 لا يوجد سجل محفوظ لأسماء الرومات. استخدم /تغير أولاً.');
-        const backup = await getRenameBackup(storage);
-        if (c === 'تغير') {
-          const chosenName = i.options.getString('الاسم', true).trim();
-          if (!chosenName) return i.editReply('❌ اكتب الاسم الجديد.');
-          if (backup.meta?.active) {
-            const channelsToRename = [...guild.channels.cache.values()].filter(ch => ch.id !== storage.id && typeof ch.setName === 'function');
-            let changed = 0, failed = 0;
-            for (const ch of channelsToRename) {
-              try { if (ch.name !== chosenName) { await ch.setName(chosenName, 'Bulk rename via /تغير'); changed++; } }
-              catch (e) { failed++; log('Bulk rename failed for channel ' + ch.id + ': ' + e.message); }
-            }
-            return i.editReply('✅ تم تطبيق الاسم **' + chosenName + '** على الرومات.\n✏️ تغيّرت: **' + changed + '**\n⚠️ تعذّر: **' + failed + '**\n💾 الأسماء الأصلية ما زالت محفوظة من أول تغيير. استخدم /اعاده لاسترجاعها.');
-          }
-          const originalChannels = [...guild.channels.cache.values()]
-            .filter(ch => ch.id !== storage.id && typeof ch.setName === 'function')
-            .map(ch => ({
-              id: ch.id,
-              name: ch.name,
-              type: ch.type,
-              parentId: ch.parentId || null,
-              position: ch.rawPosition ?? ch.position ?? 0,
-              topic: typeof ch.topic === 'string' ? ch.topic : null
-            }));
-          await saveRenameBackup(storage, originalChannels, true);
-          let changed = 0, failed = 0;
-          for (const ch of guild.channels.cache.values()) {
-            if (ch.id === storage.id || typeof ch.setName !== 'function') continue;
-            try { if (ch.name !== chosenName) { await ch.setName(chosenName, 'Bulk rename via /تغير'); changed++; } }
-            catch (e) { failed++; log('Bulk rename failed for channel ' + ch.id + ': ' + e.message); }
-          }
-          return i.editReply('✅ تم تغيير أسماء الرومات إلى **' + chosenName + '**.\n✏️ تغيّرت: **' + changed + '**\n⚠️ تعذّر: **' + failed + '**\n💾 حفظت الأسماء الأصلية داخل سجل خاص، وستبقى محفوظة حتى لو انطفأ البوت أو أُعيد تشغيله. استخدم /اعاده لاسترجاعها.');
-        }
-        if (!backup.meta?.active) return i.editReply('ℹ️ ما فيه أسماء محفوظة تحتاج استعادة. استخدم /تغير أولاً.');
-        let restored = 0, recreated = 0, skipped = 0, failed = 0;
-        const restoredIds = new Map();
-        const isSavedCategory = saved =>
-          saved.type === 4 ||
-          (!Number.isInteger(saved.type) && /^╾━╤デ═一.*一═デ╤━╼?$/.test(saved.name || ''));
-        const inferredType = saved => {
-          if (Number.isInteger(saved.type) && [0, 2, 4, 5, 13].includes(saved.type)) return saved.type;
-          if (isSavedCategory(saved)) return 4;
-          if (/^(🎙️・فويس|💤・𝐀𝐅𝐊)$/.test(saved.name || '')) return 2;
-          return 0;
-        };
-        const legacyCategoryFor = name => {
-          const n = String(name || '').toLowerCase();
-          let categoryText = null;
-          if (/📜|القوانين|التحديثات|الأخبار|الفعاليات|الترحيب|rules/.test(n)) categoryText = 'عن السيرفر';
-          else if (/الدعم|التذكرة|الخاص|اصنع رومك|التحكم|السجل|moderator-only/.test(n)) categoryText = 'الدعم';
-          else if (/فويس|𝐀𝐅𝐊/.test(n)) categoryText = 'الصوتيات';
-          else if (/الشات|الميمز|ميديا|الرسم|العاب|روبلوكس|فالورنت|only friends/.test(n)) categoryText = 'الكتابات';
-          if (!categoryText) return null;
-          const category = backup.records.find(r => isSavedCategory(r) && String(r.name || '').includes(categoryText));
-          return category?.id || null;
-        };
-        const orderedRecords = [...backup.records].sort((a, b) =>
-          Number(isSavedCategory(b)) - Number(isSavedCategory(a)) ||
-          (Number(a.position) || 0) - (Number(b.position) || 0)
-        );
-        for (const saved of orderedRecords) {
-          if (!saved || typeof saved.name !== 'string' || !saved.name.trim()) { skipped++; continue; }
-          let ch = saved.id ? guild.channels.cache.get(saved.id) : null;
-          try {
-            if (!ch) {
-              const type = inferredType(saved);
-              let parentId = saved.parentId ? (restoredIds.get(saved.parentId) || saved.parentId) : null;
-              if (!parentId && !Number.isInteger(saved.type)) {
-                const legacyParentId = legacyCategoryFor(saved.name);
-                if (legacyParentId) parentId = restoredIds.get(legacyParentId) || legacyParentId;
-              }
-              if (parentId && !guild.channels.cache.has(parentId)) parentId = null;
-              const createOptions = { name: saved.name, type, reason: 'Restore saved channel structure via /اعاده' };
-              if (type !== 4 && parentId) createOptions.parent = parentId;
-              if (type === 0 || type === 5) {
-                if (saved.topic) createOptions.topic = saved.topic;
-              }
-              ch = await guild.channels.create(createOptions);
-              if (saved.id) restoredIds.set(saved.id, ch.id);
-              recreated++;
-            } else {
-              if (typeof ch.setName === 'function' && ch.name !== saved.name) {
-                await ch.setName(saved.name, 'Restore original channel names via /اعاده');
-                restored++;
-              }
-              if (Number.isInteger(saved.type) && ch.type !== saved.type) {
-                log('Restore note: channel type differs for saved channel ' + saved.id + '; leaving existing type unchanged.');
-              }
-              const targetParentId = saved.parentId ? (restoredIds.get(saved.parentId) || saved.parentId) : null;
-              if (targetParentId && guild.channels.cache.has(targetParentId) &&
-                  ch.parentId !== targetParentId && typeof ch.setParent === 'function') {
-                await ch.setParent(targetParentId, { reason: 'Restore saved channel category via /اعاده' });
-              }
-            }
-            if (ch && saved.id) restoredIds.set(saved.id, ch.id);
-          } catch (e) {
-            failed++;
-            log('Channel restore failed for ' + (saved.id || saved.name) + ': ' + e.message);
-          }
-        }
-        const nextMeta = { ...backup.meta, active: failed > 0, restoredAt: new Date().toISOString() };
-        await backup.metaMessage.edit(RENAME_META_MARKER + JSON.stringify(nextMeta));
-        return i.editReply('🔄 انتهت الاستعادة.' + (backup.meta.recoveryWarning ? '\n⚠️ تنبيه: بيانات النسخة القديمة كانت غير متطابقة؛ استعدت كل السجلات المتاحة.' : '') + '\n✅ رجعت أسماء: **' + restored + '**\n🆕 أُعيد إنشاء رومات مفقودة: **' + recreated + '**\n⏭️ سجلات غير صالحة: **' + skipped + '**\n⚠️ تعذّر: **' + failed + '**\n💾 احتفظت بالسجل.');
-      } catch (e) {
-        log('Channel rename/restore error: ' + (e?.stack || e));
-        const messages = {
-          BACKUP_META_INVALID:'❌ سجل النسخة الاحتياطية غير صالح.',
-          BACKUP_DATA_INVALID:'❌ تعذّر قراءة بيانات الأسماء المحفوظة.',
-          BACKUP_INCOMPLETE:'❌ سجل الأسماء غير مكتمل. لم أبدأ الاستعادة حتى لا أخمّن الأسماء.'
-        };
-        return i.editReply(messages[e.message] || '❌ تعذّر تنفيذ الأمر. تأكد من صلاحيات إدارة الرومات وأن البوت يستطيع إنشاء روم خاص وإرسال الرسائل فيه.');
-      }
-    }
-
-    if (c === 'شغل') {
-      const hasStartRole = i.member?.roles?.cache?.some(role => role.name === 'Start bot');
-      if (!hasStartRole) return i.reply({content:'⛔ هذا الأمر متاح لرتبة **Start bot** فقط.',flags:MessageFlags.Ephemeral});
-      const apiKey = process.env.RENDER_API_KEY?.trim();
-      const serviceId = process.env.RENDER_SERVICE_ID?.trim() || 'srv-db0g77jncjis739cnb20';
-      if (!apiKey) return i.reply({content:'⚠️ أمر التشغيل يحتاج إعداد RENDER_API_KEY في Environment على Render أولاً.',flags:MessageFlags.Ephemeral});
-      await i.reply({content:'🔄 طلبت إعادة تشغيل البوت على Render. قد ينقطع الاتصال لدقيقة أو دقيقتين.',flags:MessageFlags.Ephemeral});
-      try {
-        const response = await fetch('https://api.render.com/v1/services/' + encodeURIComponent(serviceId) + '/restart', {
-          method:'POST',
-          headers:{Authorization:'Bearer ' + apiKey, Accept:'application/json'}
-        });
-        if (!response.ok) {
-          const detail = (await response.text().catch(() => '')).slice(0,300);
-          log('Render restart request failed: HTTP ' + response.status + ' ' + detail);
-          return i.followUp({content:'❌ Render رفض طلب إعادة التشغيل (HTTP ' + response.status + '). تأكد من صلاحية مفتاح Render.',flags:MessageFlags.Ephemeral});
-        }
-        log('Render restart requested by ' + i.user.tag + ' (' + i.user.id + ')');
-        return i.followUp({content:'✅ Render قبل طلب إعادة التشغيل. انتظر حتى يعود البوت للعمل.',flags:MessageFlags.Ephemeral});
-      } catch (e) {
-        log('Render restart request error: ' + e.message);
-        return i.followUp({content:'❌ تعذّر الاتصال بـ Render: ' + e.message,flags:MessageFlags.Ephemeral});
-      }
-    }
-
-    if(c==='سرعة')return i.reply('🏓 Pong! '+Math.round(client.ws.ping)+'ms');
-    if (c === 'سحب_جائزة') {
-      if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
-      const channel=i.options.getChannel('الروم',true);
-      const text=i.options.getString('النص',true).trim();
-      if (!channel.isTextBased?.()) return i.reply({content:'❌ اختر روم نصي.',flags:MessageFlags.Ephemeral});
-      const me=i.guild.members.me;
-      const cp=channel.permissionsFor(me);
-      if (!cp?.has(PermissionsBitField.Flags.SendMessages) || !cp?.has(PermissionsBitField.Flags.EmbedLinks)) return i.reply({content:'❌ البوت يحتاج Send Messages و Embed Links في الروم المحدد.',flags:MessageFlags.Ephemeral});
-      const embed=new EmbedBuilder().setTitle('🎁 Giveaway').setDescription(text).setFooter({text:'🎁 Giveaway'}).setTimestamp();
-      await channel.send({embeds:[embed]});
-      return i.reply({content:'✅ تم إرسال Giveaway في '+channel.toString()+' 🎁',flags:MessageFlags.Ephemeral});
-    }
-
-    if (c === 'اضافات') {
-      if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية إدارة السيرفر لاستخدام الإضافات.',flags:MessageFlags.Ephemeral});
-      const addon = i.options.getString('اضافة', true);
-      if (addon !== 'soviet_union') return i.reply({content:'❌ الإضافة غير معروفة.',flags:MessageFlags.Ephemeral});
-      const m = member(i);
-      if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً، ثم شغّل الإضافة.',flags:MessageFlags.Ephemeral});
-      await i.deferReply({flags:MessageFlags.Ephemeral});
-      try {
-        await runSovietAddon(m, i.guildId);
-        return i.editReply('🫡 **بدأ اتحاد سوفيتي!** تغيّر اسم الفويس وأسماء الأعضاء وتم تفعيل الميوت، وستُستعاد الأسماء وحالة الميوت واسم الفويس بعد انتهاء الأغنية.');
-      } catch (e) {
-        log('Add-on command error: ' + (e?.stack || e));
-        const messages = {
-          VOICE_REQUIRED:'🎙️ ادخل الروم الصوتي أولاً.',
-          ADDON_ALREADY_RUNNING:'⏳ توجد إضافة شغالة بالفعل في هذا السيرفر.',
-          ADDON_FILE_MISSING:'📁 مجلد الإضافة فارغ. ارفع أغنية MP3 أو WAV أو OGG إلى مجلد اضافات/اتحاد سوفيتي.',
-          NEED_MANAGE_NICKNAMES:'❌ البوت يحتاج صلاحية Manage Nicknames.',
-          NEED_MUTE_MEMBERS:'❌ البوت يحتاج صلاحية Mute Members.',
-          NEED_MANAGE_CHANNELS:'❌ البوت يحتاج صلاحية Manage Channels في الروم.',
-          NEED_VOICE_PERMS:'❌ البوت يحتاج صلاحيتَي Connect و Speak.'
-        };
-        return i.editReply(messages[e.message] || '❌ فشلت الإضافة. تحقق من صلاحيات البوت وملف الأغنية، ثم راجع سجلات Render.');
-      }
-    }
-
-    if (c === 'تكلم') {
-      if (!perms(i, PermissionsBitField.Flags.ManageMessages)) {
-        return i.reply({content:'❌ تحتاج صلاحية إدارة الرسائل لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
-      }
-      const target = i.options.getUser('العضو', true);
-      const speech = i.options.getString('الكلام', true).trim();
-      if (!speech) return i.reply({content:'❌ اكتب الكلام الذي تريد نشره.',flags:MessageFlags.Ephemeral});
-      const me = i.guild.members.me;
-      const channelPerms = i.channel.permissionsFor(me);
-      if (!channelPerms?.has(PermissionsBitField.Flags.ManageWebhooks)) {
-        return i.reply({content:'❌ البوت يحتاج صلاحية Manage Webhooks في هذا الروم ليعرض اسم العضو وصورته.',flags:MessageFlags.Ephemeral});
-      }
-      const targetMember = await i.guild.members.fetch(target.id).catch(() => null);
-      const displayName = targetMember?.displayName || target.username;
-      const avatarURL = target.displayAvatarURL({extension:'png', size:256});
-      const safeText = speech.replace(/@everyone/g, '@​everyone').replace(/@here/g, '@​here');
-      let webhook;
-      try {
-        webhook = await i.channel.createWebhook({name:'رسائل بالنيابة', reason:'نشر رسالة موضّحة بطلب من مشرف'});
-        await webhook.send({
-          content:safeText,
-          username:displayName,
-          avatarURL,
-          allowedMentions:{parse:[]}
-        });
-      } finally {
-        if (webhook) await webhook.delete('حذف webhook المؤقت بعد النشر').catch(e => log('Temporary webhook cleanup failed: '+e.message));
-      }
-      return i.reply({content:'✅ نُشر النص باسم العضو وصورته، مع توضيح أنه نُشر عبر البوت.',flags:MessageFlags.Ephemeral});
-    }
-
-    if (c === 'نقل_اعضاء') {
-      if (!perms(i, PermissionsBitField.Flags.MoveMembers)) {
-        return i.reply({content:'❌ تحتاج صلاحية نقل الأعضاء (Move Members).',flags:MessageFlags.Ephemeral});
-      }
-      const source = i.options.getChannel('المصدر', true);
-      const destination = i.options.getChannel('الوجهة', true);
-      if (!source.isVoiceBased?.() || !destination.isVoiceBased?.()) {
-        return i.reply({content:'❌ اختر رومين صوتيين صالحين.',flags:MessageFlags.Ephemeral});
-      }
-      if (source.id === destination.id) {
-        return i.reply({content:'❌ اختر رومًا مختلفًا كوجهة للنقل.',flags:MessageFlags.Ephemeral});
-      }
-      const botMember = i.guild.members.me;
-      for (const ch of [source, destination]) {
-        const cp = ch.permissionsFor(botMember);
-        if (!cp?.has(PermissionsBitField.Flags.ViewChannel) ||
-            !cp?.has(PermissionsBitField.Flags.Connect) ||
-            !cp?.has(PermissionsBitField.Flags.MoveMembers)) {
-          return i.reply({content:'❌ البوت يحتاج صلاحيات عرض الروم والاتصال ونقل الأعضاء في الرومين المحددين.',flags:MessageFlags.Ephemeral});
-        }
-      }
-      await i.deferReply({flags:MessageFlags.Ephemeral});
-      const targets = [...source.members.values()].filter(m => m.id !== client.user.id);
-      let moved = 0, failed = 0;
-      for (const target of targets) {
-        try {
-          if (target.voice.channelId === source.id) {
-            await target.voice.setChannel(destination, 'نقل الأعضاء بواسطة أمر /نقل_اعضاء');
-            moved++;
-          }
-        } catch (e) {
-          failed++;
-          log('Move members failed for ' + target.id + ': ' + e.message);
-        }
-      }
-      return i.editReply('🚚 **اكتمل النقل**\nمن: '+source.toString()+'\nإلى: '+destination.toString()+'\n✅ تم نقل: **'+moved+'**\n❌ تعذّر نقل: **'+failed+'**');
-    }
 
     if (c === 'مؤثره') {
       if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
@@ -1309,7 +714,7 @@ client.on('interactionCreate', async i => {
       if (!cp?.has(PermissionsBitField.Flags.MoveMembers)) return i.reply({content:'❌ البوت يحتاج صلاحية Move Members لفصل الأعضاء من المكالمة.',flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
       try {
-        await playVoiceEffect({voice:{channel}}, file, i.guildId, durationMs, async (voiceChannel) => {
+        await playVoiceEffect({voice:{channel}}, file, i.guildId, durationMs, async voiceChannel => {
           let disconnected = 0, failed = 0;
           const targets = [...voiceChannel.members.values()].filter(m => m.id !== client.user.id && !m.user.bot);
           for (const target of targets) {
@@ -1332,7 +737,7 @@ client.on('interactionCreate', async i => {
       }
     }
 
-    if (c === 'تشغيل_اغنية') {
+    if (c === 'تشغيل-اغنيه') {
       const m = member(i);
       if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولاً.',flags:MessageFlags.Ephemeral});
       const songs = getSongs();
@@ -1346,31 +751,15 @@ client.on('interactionCreate', async i => {
       return i.reply({content:'🎵 **اختر الأغنية:**',components:[row,buttons],flags:MessageFlags.Ephemeral});
     }
 
-    if (c === 'ايقاف_الموسيقى') {
-      return i.reply(stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى.' : 'ما فيه موسيقى شغالة.');
+    if (c === 'اطفاء-اغنيه') {
+      return i.reply(stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى وخروج البوت.' : 'ما فيه موسيقى شغالة.');
     }
 
-    if (c==='طرد_عضو' || c==='حظر_عضو') {
-      const permission=c==='طرد_عضو'?PermissionsBitField.Flags.KickMembers:PermissionsBitField.Flags.BanMembers;
-      if (!perms(i,permission)) return i.reply({content:'❌ ما عندك الصلاحية المطلوبة.',flags:MessageFlags.Ephemeral});
-      const u=i.options.getUser('العضو',true);
-      const m=i.guild.members.cache.get(u.id);
-      if (u.id===i.user.id) return i.reply({content:'❌ لا يمكنك استخدام الأمر على نفسك.',flags:MessageFlags.Ephemeral});
-      if (m && !(c==='طرد_عضو'?m.kickable:m.bannable)) return i.reply({content:'❌ رتبة البوت يجب أن تكون أعلى من العضو.',flags:MessageFlags.Ephemeral});
-      if (c==='طرد_عضو') await m.kick('Discord bot /kick by '+i.user.tag);
-      else await i.guild.members.ban(u.id,{reason:'Discord bot /ban by '+i.user.tag});
-      return i.reply((c==='طرد_عضو'?'👢 تم طرد ':'🔨 تم حظر ')+ '**'+u.tag+'**');
-    }
-
-    if (c==='قفل_الدردشة' || c==='فتح_الدردشة') {
-      if (!perms(i,PermissionsBitField.Flags.ManageChannels)) return i.reply({content:'❌ تحتاج Manage Channels.',flags:MessageFlags.Ephemeral});
-      await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:c==='قفل_الدردشة'?false:null});
-      return i.reply(c==='قفل_الدردشة'?'🔒 تم قفل الدردشة.':'🔓 تم فتح الدردشة.');
-    }
-
-    if (c==='سجلات') {
-      if (!perms(i,PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج Manage Server.',flags:MessageFlags.Ephemeral});
-      return i.reply({content:'```\n'+logs.slice(-20).join('\n').slice(0,1800)+'\n```',flags:MessageFlags.Ephemeral});
+    if (c === 'العاب') {
+      const menu = new StringSelectMenuBuilder().setCustomId('game_pick').setPlaceholder('🎮 اختر لعبة').addOptions([
+        {label:'DOOM (1993)',description:'لعبة تصويب كلاسيكية تعمل في المتصفح',value:'doom',emoji:'💀'}
+      ]);
+      return i.reply({content:'🎮 **اختر اللعبة التي تريد تشغيلها:**',components:[new ActionRowBuilder().addComponents(menu)],flags:MessageFlags.Ephemeral});
     }
   } catch(e) {
     log('Interaction error: '+e.stack);
