@@ -739,6 +739,8 @@ function maze3dMessage(game,prefix){
   const fence=String.fromCharCode(96).repeat(3);
   return (prefix||'🌀 **NEON MAZE 3D | متاهة منظور ثلاثي الأبعاد**')+'\n❤️ الصحة: **'+game.hp+'**   💎 البلورات: **'+game.collected+'/'+game.crystalGoal+'**   👾 الحراس: **'+game.enemies.length+'**\n'+fence+'\n'+maze3dView(game)+'\n'+fence+'\nاجمع البلورات 💎، تفادَ الحراس أو اضربهم بنبضة ⚡، ثم اعثر على 🚪 المخرج. المشهد ثلاثي الأبعاد مُحاكى برسائل 2D.';
 
+}
+
 client.on('interactionCreate', async i => {
   try {
     if (i.isChatInputCommand()) {
