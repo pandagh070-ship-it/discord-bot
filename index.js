@@ -803,11 +803,22 @@ client.on('interactionCreate', async i => {
         if (!sourcePerms?.has(PermissionsBitField.Flags.Connect) || !sourcePerms?.has(PermissionsBitField.Flags.Speak)) {
           return i.reply({content:'❌ البوت يحتاج Connect و Speak في روم العضو الحالي.',flags:MessageFlags.Ephemeral});
         }
+        const didiAvatarUrl = 'https://images.90s90s.de/files/2025-12/imago77593699.jpg?crop=4478%2C3359%2C0%2C0&crop=faces&dpr=3&fit=crop&fm=webp&h=375&height=1125&rect=0%2C0%2C4478%2C3359&w=500&width=1500';
+        const oldBotNickname = botMember.nickname;
+        const oldBotAvatarUrl = botMember.displayAvatarURL({ extension:'png', size:1024 });
+        let didiIdentityChanged = false;
+        try {
+          await botMember.setNickname('Didi 😎', 'Temporary Didi prank identity');
+          if (typeof botMember.setAvatar === 'function') await botMember.setAvatar(didiAvatarUrl, 'Temporary Didi prank avatar');
+          didiIdentityChanged = true;
+        } catch (identityError) {
+          log('Didi temporary identity update failed: ' + identityError.message);
+        }
         await i.reply({
           embeds:[new EmbedBuilder()
             .setTitle('Didi 😎')
             .setDescription('Didi is here… 3 seconds.')
-            .setImage('https://images.90s90s.de/files/2025-12/imago77593699.jpg?crop=4478%2C3359%2C0%2C0&crop=faces&dpr=3&fit=crop&fm=webp&h=375&height=1125&rect=0%2C0%2C4478%2C3359&w=500&width=1500')
+            .setImage(didiAvatarUrl)
             .setColor(0x222222)],
           flags:MessageFlags.Ephemeral
         });
@@ -855,6 +866,12 @@ client.on('interactionCreate', async i => {
               const fresh = await guild.channels.fetch(privateChannel.id).catch(() => null);
               if (fresh) await fresh.delete('Didi temporary room cleanup');
             } catch (e) { log('Didi room cleanup failed: ' + e.message); }
+            if (didiIdentityChanged) {
+              try { await botMember.setNickname(oldBotNickname, 'Restore bot nickname after Didi prank'); }
+              catch (e) { log('Didi nickname restore failed: ' + e.message); }
+              try { if (typeof botMember.setAvatar === 'function') await botMember.setAvatar(oldBotAvatarUrl, 'Restore bot avatar after Didi prank'); }
+              catch (e) { log('Didi avatar restore failed: ' + e.message); }
+            }
           }, 60000);
         } catch (e) {
           log('Didi command error: ' + (e?.stack || e));
