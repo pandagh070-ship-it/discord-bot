@@ -646,7 +646,7 @@ client.once('clientReady', async () => {
     ]},
     {name:'تشغيل-اغنيه',description:'اختيار وتشغيل أغنية'},
     {name:'اطفاء-اغنيه',description:'إيقاف الأغنية والخروج من الروم الصوتي'},
-    {name:'العاب',description:'ابدأ مغامرة متاهة بمنظور ثلاثي الأبعاد داخل ديسكورد'}
+    {name:'العاب',description:'اختر DOOM وافتح رابط اللعبة في المتصفح'}
   ];
 
   try {
@@ -750,7 +750,7 @@ client.on('interactionCreate', async i => {
         const menu = new StringSelectMenuBuilder()
           .setCustomId('games_menu')
           .setPlaceholder('🎮 اختر لعبة')
-          .addOptions([{label:'NEON MAZE 3D',description:'متاهة منظور ثلاثي الأبعاد بإيموجيات داخل ديسكورد',value:'maze3d',emoji:'🌀'}]);
+          .addOptions([{label:'DOOM',description:'افتح لعبة DOOM الأصلية في المتصفح بدون تثبيت',value:'doom',emoji:'🎮'}]);
         return i.reply({
           content:'🎮 **اختر اللعبة التي تريد تشغيلها:**',
           components:[new ActionRowBuilder().addComponents(menu)],
@@ -825,10 +825,13 @@ client.on('interactionCreate', async i => {
     }
 
     if (i.isStringSelectMenu() && i.customId === 'games_menu') {
-      if (i.values[0] === 'maze3d') {
-        const game={x:1,y:1,dir:1,hp:100,steps:0,collected:0,crystalGoal:3,crystals:[{x:3,y:1},{x:5,y:3},{x:1,y:5}],exit:{x:9,y:9},enemies:[{x:7,y:1},{x:9,y:3},{x:5,y:5}]};
-        maze3dGames.set(i.user.id,game);
-        return i.update({content:maze3dMessage(game),components:maze3dControls()});
+      if (i.values[0] === 'doom') {
+        return i.update({
+          content:'🎮 **DOOM | اللعبة الأصلية**\nاضغط الرابط لفتح اللعبة كاملة في المتصفح، بدون إضافات أو تثبيت. هذه نسخة المشاركة المجانية الأصلية.\n🔗 https://exebrowser.com/run/doom/\n\n🕹️ بعد فتح الصفحة اضغط على شاشة اللعبة لبدء اللعب.',
+          components:[new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setLabel('العب DOOM الآن').setStyle(ButtonStyle.Link).setURL('https://exebrowser.com/run/doom/')
+          )]
+        });
       }
     }
 
