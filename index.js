@@ -43,7 +43,7 @@ const gameLobbies = new Map();
 const mafiaGames = new Map();
 const rpsGames = new Map();
 const battleGames = new Map();
-const doomGames = new Map();
+const maze3dGames = new Map();
 const effectStates = new Map();
 const addonStates = new Map();
 const hackSimulations = new Map();
@@ -646,7 +646,7 @@ client.once('clientReady', async () => {
     ]},
     {name:'تشغيل-اغنيه',description:'اختيار وتشغيل أغنية'},
     {name:'اطفاء-اغنيه',description:'إيقاف الأغنية والخروج من الروم الصوتي'},
-    {name:'العاب',description:'ابدأ لعبة تصويب بمنظور ثلاثي الأبعاد داخل ديسكورد'}
+    {name:'العاب',description:'ابدأ مغامرة متاهة بمنظور ثلاثي الأبعاد داخل ديسكورد'}
   ];
 
   try {
@@ -659,54 +659,85 @@ client.once('clientReady', async () => {
 });
 
 
-const DOOM_MAP = [
-  '###########','#...#.....#','#.#.#.###.#','#.#...#...#','#.###.#.#.#',
-  '#.....#.#.#','###.###.#.#','#...#...#.#','#.#...#...#','#.........#','###########'
+const MAZE3D_MAP = [
+  '###########',
+  '#...#.....#',
+  '#.#.#.###.#',
+  '#.#...#...#',
+  '#.###.#.#.#',
+  '#.....#.#.#',
+  '###.###.#.#',
+  '#...#...#.#',
+  '#.#...#...#',
+  '#.........#',
+  '###########'
 ];
-const DOOM_DIRS = [{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0}];
-function doomWall(x,y){return y<0||y>=DOOM_MAP.length||x<0||x>=DOOM_MAP[0].length||DOOM_MAP[y][x]==='#';}
-function doomView(game){
-  const width=9,height=7,rows=[],dirs=DOOM_DIRS[game.dir],facing=Math.atan2(dirs.y,dirs.x);
+const MAZE3D_DIRS = [{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0}];
+function maze3dWall(x,y){return y<0||y>=MAZE3D_MAP.length||x<0||x>=MAZE3D_MAP[0].length||MAZE3D_MAP[y][x]==='#';}
+function maze3dVisibleObject(game){
+  const d=MAZE3D_DIRS[game.dir];
+  for(let n=1;n<=7;n++){
+    const x=game.x+d.x*n,y=game.y+d.y*n;
+    if(maze3dWall(x,y)) return null;
+    const enemy=game.enemies.find(e=>e.x===x&&e.y===y);
+    if(enemy) return {kind:'enemy',distance:n};
+    const crystal=game.crystals.find(c=>c.x===x&&c.y===y);
+    if(crystal) return {kind:'crystal',distance:n};
+    if(x===game.exit.x&&y===game.exit.y) return {kind:'exit',distance:n};
+  }
+  return null;
+}
+function maze3dView(game){
+  const width=9,height=7,rows=[],dirs=MAZE3D_DIRS[game.dir],facing=Math.atan2(dirs.y,dirs.x);
   for(let sy=0;sy<height;sy++){
     let row='';
     for(let sx=0;sx<width;sx++){
-      const offset=((sx/(width-1))-0.5)*1.18,angle=facing+offset;
-      let distance=0.15,hit=false,side=false;
+      const offset=((sx/(width-1))-0.5)*1.05,angle=facing+offset;
+      let distance=0.12,hit=false,side=false;
       while(distance<9){
-        if(doomWall(Math.floor(game.x+Math.cos(angle)*distance),Math.floor(game.y+Math.sin(angle)*distance))){hit=true;side=Math.abs(Math.sin(angle))>Math.abs(Math.cos(angle));break;}
-        distance+=0.08;
+        if(maze3dWall(Math.floor(game.x+Math.cos(angle)*distance),Math.floor(game.y+Math.sin(angle)*distance))){hit=true;side=Math.abs(Math.sin(angle))>Math.abs(Math.cos(angle));break;}
+        distance+=0.07;
       }
-      const corrected=Math.max(0.35,distance*Math.cos(offset)),wallHeight=hit?Math.min(height,Math.max(1,Math.floor(7.5/corrected))):0;
+      const corrected=Math.max(0.3,distance*Math.cos(offset)),wallHeight=hit?Math.min(height,Math.max(1,Math.floor(8.2/corrected))):0;
       const top=Math.floor((height-wallHeight)/2),bottom=top+wallHeight;
       let tile;
-      if(hit&&sy>=top&&sy<bottom)tile=corrected<1.7?(side?'🟥':'🟧'):corrected<3.5?(side?'🟫':'🟧'):'🟫';
-      else if(sy<height/2)tile='⬛';
-      else if(sy===Math.floor(height/2)&&sx===Math.floor(width/2))tile='🎯';
-      else tile=((sx+sy+Math.floor(game.steps/2))%2===0)?'🟩':'⬛';
+      if(hit&&sy>=top&&sy<bottom){
+        if(corrected<1.5) tile=side?'🟦':'🟪';
+        else if(corrected<3) tile=side?'🟫':'🟦';
+        else tile=side?'⬛':'🟪';
+      }else if(sy<height/2) tile=((sx+sy)%4===0)?'🌌':'⬛';
+      else tile=((sx+sy+Math.floor(game.steps/2))%3===0)?'🟩':'🟫';
       row+=tile;
     }
     rows.push(row);
   }
-  const enemy=game.enemies.find(e=>(game.dir===0&&e.x===game.x&&e.y<game.y)||(game.dir===1&&e.y===game.y&&e.x>game.x)||(game.dir===2&&e.x===game.x&&e.y>game.y)||(game.dir===3&&e.y===game.y&&e.x<game.x));
-  if(enemy){const dist=Math.abs(enemy.x-game.x)+Math.abs(enemy.y-game.y);if(dist>0&&dist<7){const center=4,r=Math.max(0,Math.min(height-1,Math.floor(height/2+(dist-2)*0.35)));rows[r]=rows[r].slice(0,center*2)+'👾'+rows[r].slice((center+1)*2);}}
+  const object=maze3dVisibleObject(game);
+  if(object){
+    const center=4;
+    const row=Math.max(0,Math.min(height-1,Math.floor(height/2+(object.distance-2)*0.42)));
+    const glyph=object.kind==='enemy'?'👾':object.kind==='crystal'?'💎':'🚪';
+    rows[row]=rows[row].slice(0,center*2)+glyph+rows[row].slice((center+1)*2);
+  }else{
+    const center=4,mid=Math.floor(height/2);
+    rows[mid]=rows[mid].slice(0,center*2)+'🎯'+rows[mid].slice((center+1)*2);
+  }
   return rows.join('\n');
 }
-function doomControls(){
+function maze3dControls(){
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('doom_forward').setLabel('تقدم ⬆️').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('doom_left').setLabel('لف يسار ↶').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('doom_right').setLabel('لف يمين ↷').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('doom_back').setLabel('رجوع ⬇️').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('doom_shoot').setLabel('إطلاق 🔫').setStyle(ButtonStyle.Danger)
+      new ButtonBuilder().setCustomId('maze3d_forward').setLabel('تقدم ⬆️').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('maze3d_left').setLabel('لف يسار ↶').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('maze3d_right').setLabel('لف يمين ↷').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('maze3d_back').setLabel('رجوع ⬇️').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('maze3d_pulse').setLabel('نبضة ⚡').setStyle(ButtonStyle.Danger)
     ),
-    new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('doom_exit').setLabel('إنهاء اللعبة').setEmoji('🛑').setStyle(ButtonStyle.Secondary))
+    new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('maze3d_exit').setLabel('إنهاء اللعبة').setEmoji('🛑').setStyle(ButtonStyle.Secondary))
   ];
 }
-function doomMessage(game,prefix){
+function maze3dMessage(game,prefix){
   const fence=String.fromCharCode(96).repeat(3);
-  return (prefix||'🎮 **DOOM Emoji FPS | منظور شبه ثلاثي الأبعاد**')+'\n❤️ الصحة: **'+game.hp+'**   👾 الأعداء المتبقون: **'+game.enemies.length+'**\n'+fence+'\n'+doomView(game)+'\n'+fence+'\n⬅️➡️ لفّ، ⬆️ تقدّم، 🔫 أطلق النار. لعبة إيموجي بمنظور شبه ثلاثي الأبعاد داخل ديسكورد.';
-}
+  return (prefix||'🌀 **NEON MAZE 3D | متاهة منظور ثلاثي الأبعاد**')+'\n❤️ الصحة: **'+game.hp+'**   💎 البلورات: **'+game.collected+'/'+game.crystalGoal+'**   👾 الحراس: **'+game.enemies.length+'**\n'+fence+'\n'+maze3dView(game)+'\n'+fence+'\nاجمع البلورات 💎، تفادَ الحراس أو اضربهم بنبضة ⚡، ثم اعثر على 🚪 المخرج. المشهد ثلاثي الأبعاد مُحاكى برسائل 2D.';
 
 client.on('interactionCreate', async i => {
   try {
@@ -717,7 +748,7 @@ client.on('interactionCreate', async i => {
         const menu = new StringSelectMenuBuilder()
           .setCustomId('games_menu')
           .setPlaceholder('🎮 اختر لعبة')
-          .addOptions([{label:'DOOM',description:'لعبة تصويب كلاسيكية تعمل في المتصفح',value:'doom',emoji:'🎮'}]);
+          .addOptions([{label:'NEON MAZE 3D',description:'متاهة منظور ثلاثي الأبعاد بإيموجيات داخل ديسكورد',value:'maze3d',emoji:'🌀'}]);
         return i.reply({
           content:'🎮 **اختر اللعبة التي تريد تشغيلها:**',
           components:[new ActionRowBuilder().addComponents(menu)],
@@ -792,34 +823,45 @@ client.on('interactionCreate', async i => {
     }
 
     if (i.isStringSelectMenu() && i.customId === 'games_menu') {
-      if (i.values[0] === 'doom') {
-        const game={x:1,y:1,dir:1,hp:100,steps:0,enemies:[{x:7,y:1},{x:9,y:3},{x:5,y:5},{x:8,y:7}]};
-        doomGames.set(i.user.id,game);
-        return i.update({content:doomMessage(game),components:doomControls()});
+      if (i.values[0] === 'maze3d') {
+        const game={x:1,y:1,dir:1,hp:100,steps:0,collected:0,crystalGoal:3,crystals:[{x:3,y:1},{x:5,y:3},{x:1,y:5}],exit:{x:9,y:9},enemies:[{x:7,y:1},{x:9,y:3},{x:5,y:5}]};
+        maze3dGames.set(i.user.id,game);
+        return i.update({content:maze3dMessage(game),components:maze3dControls()});
       }
     }
 
-    if (i.isButton() && i.customId.startsWith('doom_')) {
-      const game=doomGames.get(i.user.id);
-      if(!game)return i.reply({content:'انتهت جلستك. استخدم /العاب لبدء لعبة جديدة.',flags:MessageFlags.Ephemeral});
-      if(i.customId==='doom_exit'){doomGames.delete(i.user.id);return i.update({content:'🛑 تم إنهاء لعبة DOOM.',components:[]});}
-      if(i.customId==='doom_left')game.dir=(game.dir+3)%4;
-      else if(i.customId==='doom_right')game.dir=(game.dir+1)%4;
-      else if(i.customId==='doom_forward'||i.customId==='doom_back'){
-        const dir=DOOM_DIRS[game.dir],sign=i.customId==='doom_forward'?1:-1,nx=game.x+dir.x*sign,ny=game.y+dir.y*sign;
-        if(!doomWall(nx,ny)){game.x=nx;game.y=ny;game.steps++;}else game.hp=Math.max(0,game.hp-5);
-      }else if(i.customId==='doom_shoot'){
-        const dir=DOOM_DIRS[game.dir];let target=null;
-        for(let step=1;step<=6;step++){const x=game.x+dir.x*step,y=game.y+dir.y*step;if(doomWall(x,y))break;target=game.enemies.find(e=>e.x===x&&e.y===y)||null;if(target)break;}
-        if(target){
-          game.enemies=game.enemies.filter(e=>e!==target);
-          if(!game.enemies.length){doomGames.delete(i.user.id);return i.update({content:'🏆 **فزت!** قضيت على كل الأعداء في DOOM Emoji FPS. استخدم /العاب للعب مجددًا.',components:[]});}
-          return i.update({content:doomMessage(game,'💥 **أصبت العدو!**'),components:doomControls()});
+    if (i.isButton() && i.customId.startsWith('maze3d_')) {
+      const game=maze3dGames.get(i.user.id);
+      if(!game)return i.reply({content:'انتهت جلستك. استخدم /العاب لبدء مغامرة جديدة.',flags:MessageFlags.Ephemeral});
+      if(i.customId==='maze3d_exit'){maze3dGames.delete(i.user.id);return i.update({content:'🛑 انتهت مغامرة NEON MAZE 3D.',components:[]});}
+      if(i.customId==='maze3d_left')game.dir=(game.dir+3)%4;
+      else if(i.customId==='maze3d_right')game.dir=(game.dir+1)%4;
+      else if(i.customId==='maze3d_forward'||i.customId==='maze3d_back'){
+        const dir=MAZE3D_DIRS[game.dir],sign=i.customId==='maze3d_forward'?1:-1,nx=game.x+dir.x*sign,ny=game.y+dir.y*sign;
+        if(!maze3dWall(nx,ny)){
+          game.x=nx;game.y=ny;game.steps++;
+          const ci=game.crystals.findIndex(c=>c.x===game.x&&c.y===game.y);
+          if(ci>=0){game.crystals.splice(ci,1);game.collected++;}
+          const enemy=game.enemies.find(e=>e.x===game.x&&e.y===game.y);
+          if(enemy)game.hp=Math.max(0,game.hp-25);
+        }else game.hp=Math.max(0,game.hp-4);
+      }else if(i.customId==='maze3d_pulse'){
+        const dir=MAZE3D_DIRS[game.dir];let target=null;
+        for(let step=1;step<=6;step++){
+          const x=game.x+dir.x*step,y=game.y+dir.y*step;
+          if(maze3dWall(x,y))break;
+          target=game.enemies.find(e=>e.x===x&&e.y===y)||null;
+          if(target)break;
         }
-        return i.update({content:doomMessage(game,'🔫 **طلقة ضائعة!** لا يوجد عدو أمامك.'),components:doomControls()});
+        if(target){game.enemies=game.enemies.filter(e=>e!==target);}
+        else game.hp=Math.max(0,game.hp-2);
       }
-      if(game.hp<=0){doomGames.delete(i.user.id);return i.update({content:'💀 **انتهت اللعبة!** استُنفدت صحتك. استخدم /العاب للمحاولة مجددًا.',components:[]});}
-      return i.update({content:doomMessage(game),components:doomControls()});
+      if(game.hp<=0){maze3dGames.delete(i.user.id);return i.update({content:'💀 **انتهت المغامرة!** استُنفدت صحتك. استخدم /العاب للمحاولة مجددًا.',components:[]});}
+      if(game.x===game.exit.x&&game.y===game.exit.y){
+        if(game.collected>=game.crystalGoal){maze3dGames.delete(i.user.id);return i.update({content:'🏆 **نجحت في الهروب من NEON MAZE 3D!** جمعت البلورات ووجدت المخرج.',components:[]});}
+        return i.update({content:maze3dMessage(game,'🚪 **المخرج مقفل!** اجمع البلورات الثلاث أولًا.'),components:maze3dControls()});
+      }
+      return i.update({content:maze3dMessage(game),components:maze3dControls()});
     }
 
     if (i.isStringSelectMenu() && i.customId === 'music_pick') {
