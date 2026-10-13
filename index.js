@@ -636,6 +636,7 @@ client.once('clientReady', async () => {
   log('Bot online as ' + client.user.tag);
 
   const commands = [
+    {name:'soviet-union',description:'Run the Soviet Union voice-channel effect'},
     {name:'effects',description:'Play a voice effect in a voice channel',options:[
       {name:'bomb_type',description:'Choose an effect',type:3,required:true,choices:[
         {name:'قنبله نوويه 💣',value:'normal'},
@@ -780,6 +781,29 @@ client.on('interactionCreate', async i => {
           content:stopMusic(i.guildId) ? '⏹️ تم إيقاف الموسيقى وخروج البوت.' : 'ما فيه موسيقى شغالة.',
           flags:MessageFlags.Ephemeral
         });
+      }
+
+      if (c === 'soviet-union') {
+        if (!perms(i, PermissionsBitField.Flags.ManageGuild)) return i.reply({content:'❌ تحتاج صلاحية Manage Server لاستخدام هذا الأمر.',flags:MessageFlags.Ephemeral});
+        const m = member(i);
+        if (!m?.voice?.channel) return i.reply({content:'🎙️ ادخل الروم الصوتي أولًا لتشغيل مؤثر اتحاد سوفيتي.',flags:MessageFlags.Ephemeral});
+        await i.deferReply({flags:MessageFlags.Ephemeral});
+        try {
+          await runSovietAddon(m, i.guildId);
+          return i.editReply('🫡 بدأ مؤثر **Soviet Union** في ' + m.voice.channel.toString() + '. سيعيد البوت أسماء الأعضاء وحالة الميوت واسم الروم بعد انتهاء الصوت.');
+        } catch (e) {
+          log('Soviet Union command error: ' + (e?.stack || e));
+          const messages = {
+            ADDON_ALREADY_RUNNING:'⚠️ مؤثر اتحاد سوفيتي يعمل بالفعل في هذا السيرفر.',
+            ADDON_FILE_MISSING:'📭 لم أجد ملف الصوت داخل مجلد اضافات/اتحاد سوفيتي في GitHub.',
+            NEED_MANAGE_NICKNAMES:'❌ البوت يحتاج صلاحية Manage Nicknames.',
+            NEED_MUTE_MEMBERS:'❌ البوت يحتاج صلاحية Mute Members.',
+            NEED_MANAGE_CHANNELS:'❌ البوت يحتاج صلاحية Manage Channels للروم.',
+            NEED_VOICE_PERMS:'❌ البوت يحتاج صلاحيتَي Connect و Speak.',
+            VOICE_REQUIRED:'🎙️ ادخل الروم الصوتي أولًا.'
+          };
+          return i.editReply(messages[e.message] || '❌ تعذّر تشغيل مؤثر اتحاد سوفيتي. تأكد من صلاحيات البوت وملف الصوت.');
+        }
       }
 
       if (c === 'effects') {
