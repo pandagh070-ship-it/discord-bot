@@ -1,8 +1,13 @@
-# Nightmare (Fabric, Minecraft 26.1.2)
+# Eto Discord Bot
 
-Horror mod with eerie sounds, footsteps behind you, heartbeat and darkness effects, and a silent watcher that appears at a distance.
+A custom Discord bot for Eto Network.
 
-Commands: `/nightmare on`, `/nightmare off`, `/nightmare scare`.
+## Planned commands
+- `/تفاعل` — post a configurable community engagement ping every two hours, with an enable/disable control.
+- `/تحذير` — send a warning to a member by DM and log it in a selected channel, with ordinary-member and staff-warning categories.
+- `/موسيقى` — join the command user's current voice channel and play a supported audio URL.
 
-Requires Fabric Loader, Fabric API, Minecraft 26.1.2 and Java 25.
-The GitHub Actions workflow builds the mod and publishes the JAR as a downloadable GitHub Release.
+The project is being rebuilt from a clean slate. Commands will be added and tested one at a time.
+
+## Setup
+Configuration and deployment instructions will be added with the first working bot command.
