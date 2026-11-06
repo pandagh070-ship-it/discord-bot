@@ -1,13 +1,17 @@
-# Eto Discord Bot
+# Eto Discord Bot ❄️
 
-A custom Discord bot for Eto Network.
+بوت Eto Network باستخدام Node.js و discord.js.
 
-## Planned commands
-- `/تفاعل` — post a configurable community engagement ping every two hours, with an enable/disable control.
-- `/تحذير` — send a warning to a member by DM and log it in a selected channel, with ordinary-member and staff-warning categories.
-- `/موسيقى` — join the command user's current voice channel and play a supported audio URL.
+## الأوامر
+- /تفاعل تشغيل: يرسل منشن @everyone في الروم المختار، ثم يكرر التذكير كل ساعتين. يبدأ أول تذكير بعد ساعتين. /تفاعل ايقاف يوقفه. الإعداد محفوظ بعد إعادة التشغيل.
+- /تحذير: يرسل تحذيراً بالخاص ويسجل Embed في روم السجل. النوع: عضو عادي أو إداري / موظف. إذا كان الخاص مغلقاً يبقى التحذير مسجلاً ويظهر ذلك للمسؤول.
+- /موسيقى تشغيل: يدخل رومك الصوتي ويشغل رابطاً تدعمه play-dl مثل روابط YouTube وSoundCloud المتوافقة. /موسيقى ايقاف يوقفه ويغادر. ليس كل رابط ويب صالحاً للتشغيل.
 
-The project is being rebuilt from a clean slate. Commands will be added and tested one at a time.
+## الإعداد والتشغيل
+1. ثبّت Node.js 20.11 أو أحدث.
+2. نفّذ npm install.
+3. انسخ .env.example إلى .env وأدخل DISCORD_TOKEN و CLIENT_ID. يمكن إضافة GUILD_ID لتسجيل أوامر الاختبار فوراً.
+4. أضف البوت إلى السيرفر بصلاحيات View Channels و Send Messages و Embed Links و Connect و Speak و Use Application Commands. لا تشارك التوكن.
+5. نفّذ npm run register ثم npm start.
 
-## Setup
-Configuration and deployment instructions will be added with the first working bot command.
+شغّل البوت على جهاز أو استضافة تبقى متصلة. هذا مشروع Node.js وليس APK. منشن الجميع يحتاج صلاحية Mention Everyone. لا يحتاج البوت إلى Message Content Intent.
