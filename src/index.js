@@ -9,7 +9,7 @@ const {
   joinVoiceChannel,createAudioPlayer,createAudioResource,VoiceConnectionStatus,
   entersState,NoSubscriberBehavior
 }=require("@discordjs/voice");
-const play=require("@iamtraction/play-dl");
+const play=require("play-dl");
 
 if(!process.env.DISCORD_TOKEN)throw Error("DISCORD_TOKEN missing");
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
