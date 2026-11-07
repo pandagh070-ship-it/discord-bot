@@ -155,8 +155,8 @@ async function startMusic(s,input){
     if(!raw)throw Error("اكتب اسم أغنية أو رابطاً.");
     let url=raw,title=raw;
     // يقبل روابط Discord المنسوخة حتى لو كانت بدون https أو داخل أقواس.
-    if(/^(www\\.|youtube\\.com\\/|youtu\\.be\\/|m\\.youtube\\.com\\/|music\\.youtube\\.com\\/|soundcloud\\.com\\/)/i.test(url))url="https://"+url;
-    const looksLikeUrl=/^(https?:\\/\\/)/i.test(url);
+    if(/^(www\.|youtube\.com\/|youtu\.be\/|m\.youtube\.com\/|music\.youtube\.com\/|soundcloud\.com\/)/i.test(url))url="https://"+url;
+    const looksLikeUrl=/^(https?:\/\/)/i.test(url);
     if(!looksLikeUrl){
       const results=await play.search(raw,{limit:1});
       if(!results?.length)throw Error("ما لقيت الأغنية. جرّب اسم أوضح.");
@@ -166,7 +166,7 @@ async function startMusic(s,input){
       const yt=await play.yt_validate(url).catch(()=>false);
       const sc=await play.so_validate(url).catch(()=>false);
       if(yt!=="video"&&yt!=="playlist"&&!sc){
-        if(/spotify\\.com|music\\.apple\\.com|tiktok\\.com|instagram\\.com/i.test(url))
+        if(/spotify\.com|music\.apple\.com|tiktok\.com|instagram\.com/i.test(url))
           throw Error("هذا المصدر غير مدعوم للتشغيل المباشر. أرسل رابط YouTube أو SoundCloud.");
         throw Error("ما قدرت أتعرف على الرابط. أرسل رابط فيديو YouTube أو مقطع SoundCloud كامل.");
       }
