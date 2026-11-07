@@ -53,7 +53,8 @@ function leaveAfk(guildId){
   afkConnections.delete(guildId);
   if(cfg[guildId]){delete cfg[guildId].afkChannelId;save()}
 }
-\nfunction onlineCount(guild){
+
+function onlineCount(guild){
   return guild.presences.cache.filter(p=>p.status==="online"&&!p.user?.bot).size;
 }
 async function refreshOnlineMessage(guild){
