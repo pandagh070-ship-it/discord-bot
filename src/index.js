@@ -3,13 +3,13 @@ const fs=require("node:fs"),path=require("node:path");
 const {
   Client,GatewayIntentBits,Events,PermissionFlagsBits,EmbedBuilder,MessageFlags,
   ActionRowBuilder,ButtonBuilder,ButtonStyle,ModalBuilder,TextInputBuilder,TextInputStyle,
-  AudioPlayerStatus
+  AudioPlayerStatus,StringSelectMenuBuilder,StringSelectMenuOptionBuilder
 }=require("discord.js");
 const {
   joinVoiceChannel,createAudioPlayer,createAudioResource,VoiceConnectionStatus,
   entersState,NoSubscriberBehavior
 }=require("@discordjs/voice");
-const play=require("play-dl");
+const play=require("@iamtraction/play-dl");
 
 if(!process.env.DISCORD_TOKEN)throw Error("DISCORD_TOKEN missing");
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
@@ -137,6 +137,7 @@ function makeSession(guild){
     guild,player:createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}}),
     connection:null,voiceChannelId:null,url:null,repeat:false,starting:false
   };
+  s.player.on("error",e=>console.error("Audio player error:",e.message));
   s.player.on(AudioPlayerStatus.Idle,()=>{
     if(s.repeat&&s.url&&!s.starting&&s.voiceChannelId){
       startMusic(s,s.url).catch(e=>console.error("Repeat:",e));
@@ -146,21 +147,32 @@ function makeSession(guild){
   return s;
 }
 function getSession(guild){return sessions.get(guild.id)||makeSession(guild)}
-async function startMusic(s,url){
-  if(s.starting)throw Error("يوجد تشغيل قيد التجهيز.");
+async function startMusic(s,input){
+  if(s.starting)throw Error("فيه طلب تشغيل قيد التجهيز، انتظر لحظة.");
   s.starting=true;
   try{
+    let url=input.trim(),title=url;
+    if(!/^https?:\\/\\//i.test(url)){
+      const results=await play.search(url,{limit:1});
+      if(!results?.length)throw Error("ما لقيت نتيجة لهذا الاسم. جرّب عنواناً أو رابطاً آخر.");
+      url=results[0].url;
+      title=results[0].title||url;
+    }
     const stream=await play.stream(url);
-    if(!s.connection){
+    if(!s.connection||s.connection.state.status===VoiceConnectionStatus.Destroyed){
       s.connection=joinVoiceChannel({
         channelId:s.voiceChannelId,guildId:s.guild.id,
         adapterCreator:s.guild.voiceAdapterCreator,selfDeaf:true
       });
+      s.connection.on("error",e=>console.error("Voice connection error:",e.message));
+      await entersState(s.connection,VoiceConnectionStatus.Ready,25000);
       s.connection.subscribe(s.player);
-      await entersState(s.connection,VoiceConnectionStatus.Ready,20000);
     }
     s.url=url;
     s.player.play(createAudioResource(stream.stream,{inputType:stream.type}));
+    return title;
+  }catch(e){
+    throw new Error("تعذر تشغيل الصوت: "+(e.message||"مصدر الصوت لم يستجب"));
   }finally{s.starting=false}
 }
 function musicControls(s,userId){
@@ -170,6 +182,9 @@ function musicControls(s,userId){
       .setStyle(s.repeat?ButtonStyle.Success:ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`music:${s.guild.id}:${userId}:link`)
       .setLabel("تغيير الرابط").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`music:${s.guild.id}:${userId}:pause`)
+      .setLabel(s.player.state.status===AudioPlayerStatus.Paused?"استئناف":"إيقاف مؤقت")
+      .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`music:${s.guild.id}:${userId}:stop`)
       .setLabel("إيقاف").setStyle(ButtonStyle.Danger)
   )];
@@ -228,6 +243,11 @@ client.on(Events.InteractionCreate,async i=>{
         return i.update({content:`🎵 التحكم بالموسيقى\nالتكرار: **${s.repeat?"مفعّل":"متوقف"}**`,components:musicControls(s,userId)});
       }
       if(action==="link")return i.showModal(musicModal(guildId,userId));
+      if(action==="pause"){
+        if(s.player.state.status===AudioPlayerStatus.Paused)s.player.unpause();
+        else s.player.pause();
+        return i.update({content:s.player.state.status===AudioPlayerStatus.Paused?"⏸️ تم إيقاف الصوت مؤقتاً.":"▶️ تم استئناف الصوت.",components:musicControls(s,userId)});
+      }
       if(action==="stop"){
         s.repeat=false;
         s.player.stop(true);
@@ -243,10 +263,24 @@ client.on(Events.InteractionCreate,async i=>{
       if(!s)return i.reply({content:"انتهت جلسة الموسيقى. شغّل الأمر من جديد.",flags:MessageFlags.Ephemeral});
       const url=i.fields.getTextInputValue("url").trim();
       if(!/^https:\/\//i.test(url))return i.reply({content:"أرسل رابط HTTPS صالحاً.",flags:MessageFlags.Ephemeral});
-      await startMusic(s,url);
-      return i.update({content:"🎵 تم تغيير الرابط وبدأ التشغيل. لوحة التحكم ستبقى ظاهرة.",components:musicControls(s,userId)});
+      const title=await startMusic(s,url);
+      return i.reply({content:"🎵 تم تشغيل: **"+title.slice(0,180)+"**",components:musicControls(s,userId),flags:MessageFlags.Ephemeral});
     }
 
+    if(i.isStringSelectMenu()&&i.customId==="eto:help"){
+      const pages={
+        community:["👥 الأعضاء والمجتمع","/عضو • /سيرفر • /رساله"],
+        fun:["✨ الترفيه والابتكار","/نشرة_إيتو • /ماذا_لو • /بصمة"],
+        voice:["🎧 الصوت والموسيقى","/موسيقى تشغيل • /موسيقى ايقاف • /afk دخول • /afk خروج • /afk حالة"],
+        admin:["🛡️ الإدارة والحماية","/تحذير • /مهلة • /طرد • /حظر • /مسح • /قفل • /فتح • /بطء"],
+        tools:["⚙️ الأدوات والإحصاءات","/تفاعل تشغيل • /تفاعل ايقاف • /عدد_نشطين • /تحديث • /تفعيل_وضع_مراسل • /إيقاف_وضع_مراسل"]
+      };
+      const page=pages[i.values[0]];
+      if(!page)return i.deferUpdate();
+      const embed=new EmbedBuilder().setColor(0x8BD5FF).setTitle(page[0]).setDescription(page[1])
+        .setFooter({text:"اختر قسماً آخر من القائمة للتنقل"});
+      return i.update({embeds:[embed]});
+    }
     if(!i.isChatInputCommand())return;
 
 
@@ -286,15 +320,60 @@ client.on(Events.InteractionCreate,async i=>{
     }
 
     if(i.commandName==="مساعدة"){
-      const embed=new EmbedBuilder().setColor(0x7BC8F6).setTitle("❄️ Eto Network | مركز الأوامر")
-        .setDescription("أوامر الإدارة والأعضاء والصوت في مكان واحد.")
-        .addFields(
-          {name:"🎧 الصوت",value:"/afk دخول • /afk خروج • /afk حالة\n/موسيقى تشغيل • /موسيقى ايقاف"},
-          {name:"🛡️ الإدارة",value:"/تحذير • /مهلة • /طرد • /حظر\n/مسح • /قفل • /فتح • /بطء"},
-          {name:"👥 الأعضاء",value:"/عضو • /سيرفر • /رساله"},
-          {name:"⚙️ الأدوات",value:"/تفاعل • /عدد_نشطين • /تحديث"}
-        ).setFooter({text:"Eto Bot • ❄️"});
-      return i.reply({embeds:[embed],flags:MessageFlags.Ephemeral});
+      const menu=new StringSelectMenuBuilder().setCustomId("eto:help")
+        .setPlaceholder("اختر القسم لعرض أوامره")
+        .addOptions(
+          new StringSelectMenuOptionBuilder().setLabel("الأعضاء والمجتمع").setValue("community").setEmoji("👥"),
+          new StringSelectMenuOptionBuilder().setLabel("الترفيه والابتكار").setValue("fun").setEmoji("✨"),
+          new StringSelectMenuOptionBuilder().setLabel("الصوت والموسيقى").setValue("voice").setEmoji("🎧"),
+          new StringSelectMenuOptionBuilder().setLabel("الإدارة والحماية").setValue("admin").setEmoji("🛡️"),
+          new StringSelectMenuOptionBuilder().setLabel("الأدوات والإحصاءات").setValue("tools").setEmoji("⚙️")
+        );
+      const embed=new EmbedBuilder().setColor(0x8BD5FF).setTitle("❄️ مركز Eto")
+        .setDescription("مركز تفاعلي. اختر قسماً من القائمة لتظهر لك أوامره.")
+        .setFooter({text:"Eto Network • Control Center"});
+      return i.reply({embeds:[embed],components:[new ActionRowBuilder().addComponents(menu)],flags:MessageFlags.Ephemeral});
+    }
+    if(i.commandName==="نشرة_إيتو"){
+      const headlines=[
+        ["📡 إشارة من خارج الخريطة","وصلت رسالة مشوشة تقول: «لا تبحثوا عن الباب، الباب يبحث عنكم». لم يُعرف مصدرها."],
+        ["🏛️ قرار غريب","أعلنت بلدية القمر منع الظلال من الوقوف في الطوابير، وطلبت من الجميع إحضار ظل احتياطي."],
+        ["🧊 الطقس داخل السيرفر","احتمال تساقط مكعبات ثلج افتراضية بنسبة 87%. يُنصح بإبعاد المايك عن العاصفة."],
+        ["🛰️ اكتشاف اليوم","رُصد كوكب صغير يدور حول إشعار ديسكورد لم يُفتح منذ 2021."],
+        ["🗞️ خبر عاجل","مصدر مجهول يؤكد أن الساعة تأخرت دقيقة لأنها كانت تقرأ المحادثة."]
+      ];
+      const item=headlines[Math.floor(Math.random()*headlines.length)];
+      const embed=new EmbedBuilder().setColor(0x8BD5FF).setTitle("🗞️ نشرة إيتو | "+item[0])
+        .setDescription(item[1]).setFooter({text:"نشرة خيالية للترفيه • لا تمثل أخباراً حقيقية"}).setTimestamp();
+      return i.reply({embeds:[embed]});
+    }
+    if(i.commandName==="ماذا_لو"){
+      const idea=i.options.getString("الفكرة");
+      const twists=[
+        "بعد ساعة، يبدأ الجميع بملاحظة أن التفاصيل الصغيرة حولهم تتغير، لكن شخصاً واحداً فقط يتذكر شكل العالم السابق.",
+        "تظهر وثيقة قديمة تثبت أن الحدث كان متوقعاً، لكن آخر سطر فيها مكتوب بخط يشبه خطك.",
+        "ينقسم الناس إلى فريقين: فريق يريد إيقاف ما يحدث، وفريق يعتقد أن هذه هي الفرصة الوحيدة لتغيير شيء أكبر.",
+        "تصل رسالة قصيرة من المستقبل، لا تحذّر من الخطر، بل تسأل لماذا لم تتخذوا القرار بعد.",
+        "يبدو الأمر عادياً في البداية، ثم تكتشف أن كل اختيار صغير يفتح مساراً مختلفاً تماماً."
+      ];
+      const embed=new EmbedBuilder().setColor(0xB8A1FF).setTitle("🌀 ملف ماذا لو؟")
+        .addFields({name:"الفكرة",value:idea},{name:"ما الذي يحدث بعدها؟",value:twists[Math.floor(Math.random()*twists.length)]})
+        .setFooter({text:"سيناريو خيالي من مختبر Eto"});
+      return i.reply({embeds:[embed]});
+    }
+    if(i.commandName==="بصمة"){
+      const traits=[
+        ["🧭 مستكشف الأنماط","تلاحظ التفاصيل التي تمر على الآخرين، وتحب فهم الصورة قبل التحرك."],
+        ["🧊 هدوء محسوب","لا تتسرع في رد الفعل، وتفضّل أن تتكلم عندما يكون عندك شيء يستحق."],
+        ["⚡ شرارة الأفكار","تربط أشياء بعيدة عن بعضها وتطلع منها بفكرة جديدة."],
+        ["🛰️ مراقب من المدار","تراقب المشهد أولاً، ثم تختار اللحظة المناسبة للدخول."]
+      ];
+      const item=traits[Math.floor(Math.random()*traits.length)];
+      const embed=new EmbedBuilder().setColor(0x8BD5FF).setTitle("🪪 بصمة Eto")
+        .setDescription("**"+item[0]+"**\n"+item[1])
+        .setThumbnail(i.user.displayAvatarURL({size:256}))
+        .setFooter({text:"وصف خيالي للتسلية، وليس حكماً على شخصيتك"});
+      return i.reply({embeds:[embed]});
     }
 
     if(i.commandName==="عضو"){
@@ -461,12 +540,12 @@ client.on(Events.InteractionCreate,async i=>{
       await i.deferReply({flags:MessageFlags.Ephemeral});
       const s=getSession(i.guild);
       s.voiceChannelId=voice.id;s.repeat=false;
-      await startMusic(s,url);
-      return i.editReply({content:"🎵 بدأ التشغيل. استخدم الأزرار للتحكم، وستبقى القائمة ظاهرة.",components:musicControls(s,i.user.id)});
+      const title=await startMusic(s,url);
+      return i.editReply({content:"🎵 بدأ التشغيل: **"+title.slice(0,180)+"**",components:musicControls(s,i.user.id)});
     }
   }catch(e){
     console.error(e);
-    const msg="تعذر تنفيذ الأمر. تحقق من صلاحيات البوت وأن الرابط مدعوم.";
+    const msg=i.commandName==="موسيقى"?"تعذر تشغيل الموسيقى. "+(e.message||"تحقق من صلاحيات Connect وSpeak ومصدر الصوت."):"تعذر تنفيذ الأمر. تحقق من صلاحيات البوت وأن الرابط مدعوم.";
     if(i.deferred||i.replied)await i.followUp({content:msg,flags:MessageFlags.Ephemeral}).catch(()=>{});
     else await i.reply({content:msg,flags:MessageFlags.Ephemeral}).catch(()=>{});
   }
