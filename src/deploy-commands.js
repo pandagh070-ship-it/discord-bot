@@ -2,6 +2,8 @@ require("dotenv").config();
 const {REST,Routes,SlashCommandBuilder,PermissionFlagsBits,ChannelType}=require("discord.js");
 
 const commands=[
+  new SlashCommandBuilder().setName("تهكير").setDescription("مقلب يغيّر أسماء الرومات ويحفظ الأصلية").setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+  new SlashCommandBuilder().setName("ارجاع_تهكير").setDescription("إرجاع أسماء الرومات المحفوظة").setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
   new SlashCommandBuilder()
     .setName("تفعيل_وضع_مراسل")
     .setDescription("تفعيل المراسل الذكي في روم محدد")
