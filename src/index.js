@@ -12,7 +12,7 @@ const {
 const play=require("play-dl");
 
 if(!process.env.DISCORD_TOKEN)throw Error("DISCORD_TOKEN missing");
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences,GatewayIntentBits.GuildMembers]});
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
 const dir=path.join(__dirname,"..","data"),file=path.join(dir,"engagement.json");
 fs.mkdirSync(dir,{recursive:true});
 let cfg={};
@@ -20,6 +20,58 @@ try{cfg=JSON.parse(fs.readFileSync(file,"utf8"))}catch{}
 const timers=new Map(),sessions=new Map(),presenceTimers=new Map();
 
 function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
+
+const messengerHistory=new Map(),messengerCooldown=new Map();
+async function askGroq(channelId){
+  const apiKey=process.env.GROQ_API_KEY;
+  if(!apiKey)return null;
+  const history=messengerHistory.get(channelId)||[];
+  const messages=[
+    {role:"system",content:"أنت إيتو، عضو طبيعي في سيرفر ديسكورد. تكلم بعفوية وبلهجة مصرية ممزوجة بالخليجية، لا تستخدم الفصحى إلا للضرورة. ردودك قصيرة غالباً، ذكية وخفيفة، وتفاعل مع سياق الكلام كأنك شخص موجود في القعدة. لا تتصنع الحماس ولا تمدح الناس بلا سبب. افهم آخر المحادثة قبل الرد، ولا تكرر كلامك. لا تقل إنك ذكاء اصطناعي إلا إذا سُئلت مباشرة. لا تخترع حقائق عن أعضاء السيرفر أو أحداث لم تُذكر. إذا لم يكن لديك شيء مفيد تقوله فأعد بالضبط: [SKIP]."},
+    ...history.slice(-12).map(x=>({role:x.role,content:x.content}))
+  ];
+  const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{
+    method:"POST",
+    headers:{"Authorization":"Bearer "+apiKey,"Content-Type":"application/json"},
+    body:JSON.stringify({model:"openai/gpt-oss-20b",messages,temperature:0.85,max_completion_tokens:180}),
+    signal:AbortSignal.timeout(25000)
+  });
+  if(!response.ok)throw Error("Groq API "+response.status);
+  const data=await response.json();
+  return data.choices?.[0]?.message?.content?.trim()||null;
+}
+client.on(Events.MessageCreate,async message=>{
+  try{
+    if(!message.guild||message.author.bot)return;
+    const settings=cfg[message.guild.id]?.messenger;
+    if(!settings?.enabled||settings.channelId!==message.channelId)return;
+    const content=message.content?.trim();
+    if(!content)return;
+    const now=Date.now();
+    const history=messengerHistory.get(message.channelId)||[];
+    history.push({role:"user",content:message.author.username+": "+content,at:now});
+    const recent=history.filter(x=>now-x.at<60000);
+    const participants=new Set(recent.filter(x=>x.role==="user").map(x=>x.content.split(": ")[0]));
+    const mentioned=message.mentions.has(client.user);
+    const lastReply=messengerCooldown.get(message.channelId)||0;
+    const conversationActive=recent.filter(x=>x.role==="user").length>=2&&participants.size<=2;
+    messengerHistory.set(message.channelId,history.slice(-16));
+    if((!mentioned&&!conversationActive)||now-lastReply<15000)return;
+    if(!process.env.GROQ_API_KEY){
+      if(!global.groqKeyWarning){console.warn("Messenger enabled but GROQ_API_KEY is not configured.");global.groqKeyWarning=true}
+      return;
+    }
+    messengerCooldown.set(message.channelId,now);
+    const answer=await askGroq(message.channelId);
+    if(!answer||answer==="[SKIP]")return;
+    const safe=answer.replace(/@everyone|@here/g,"").slice(0,1900);
+    if(!safe.trim())return;
+    await message.reply({content:safe,allowedMentions:{parse:[]}});
+    const updated=messengerHistory.get(message.channelId)||[];
+    updated.push({role:"assistant",content:safe,at:Date.now()});
+    messengerHistory.set(message.channelId,updated.slice(-16));
+  }catch(e){console.error("Messenger:",e.message)}
+});
 function schedule(id){
   if(timers.has(id))clearInterval(timers.get(id));
   const c=cfg[id];
@@ -194,6 +246,22 @@ client.on(Events.InteractionCreate,async i=>{
     if(!i.isChatInputCommand())return;
 
 
+
+    if(i.commandName==="تفعيل_وضع_مراسل"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      const ch=i.options.getChannel("الروم");
+      cfg[i.guildId]={...(cfg[i.guildId]||{}),messenger:{enabled:true,channelId:ch.id}};
+      save();
+      return i.reply({content:"تم تفعيل وضع المراسل في <#"+ch.id+">.\\n"+(process.env.GROQ_API_KEY?"المراسل جاهز للرد حسب سياق المحادثة.":"باقي إضافة مفتاح GROQ_API_KEY في GitHub Secrets حتى يبدأ الذكاء الاصطناعي بالرد."),flags:MessageFlags.Ephemeral});
+    }
+    if(i.commandName==="إيقاف_وضع_مراسل"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      if(cfg[i.guildId]?.messenger)cfg[i.guildId].messenger.enabled=false;
+      save();
+      return i.reply({content:"تم إيقاف وضع المراسل.",flags:MessageFlags.Ephemeral});
+    }
 
     if(i.commandName==="afk"){
       if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
