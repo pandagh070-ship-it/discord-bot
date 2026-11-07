@@ -32,7 +32,7 @@ const commands=[
       .addChoices({name:"عضو عادي",value:"member"},{name:"إداري / موظف",value:"staff"}))
     .addStringOption(o=>o.setName("السبب").setDescription("سبب التحذير").setRequired(true).setMaxLength(1000))
     .addChannelOption(o=>o.setName("روم_السجل").setDescription("روم تسجيل التحذير")
-      .addChannelTypes(ChannelType.GuildText).setRequired(true))
+      .addChannelTypes(ChannelType.GuildText).setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("عدد_نشطين")
