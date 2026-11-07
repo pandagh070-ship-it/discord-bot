@@ -117,6 +117,7 @@ client.once(Events.ClientReady,()=>{
 });
 
 client.on(Events.PresenceUpdate,(oldPresence,newPresence)=>{
+  if(oldPresence?.status===newPresence.status)return;
   const guild=newPresence.guild||oldPresence?.guild;
   if(guild&&cfg[guild.id]?.activeCount)queueOnlineUpdate(guild);
 });
