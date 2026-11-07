@@ -12,7 +12,7 @@ const {
 const play=require("play-dl");
 
 if(!process.env.DISCORD_TOKEN)throw Error("DISCORD_TOKEN missing");
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences]});
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences,GatewayIntentBits.GuildMembers]});
 const dir=path.join(__dirname,"..","data"),file=path.join(dir,"engagement.json");
 fs.mkdirSync(dir,{recursive:true});
 let cfg={};
