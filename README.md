@@ -22,11 +22,20 @@
 - `/تحديث`: إعلان تحديث مع منشن الجميع.
 - `/رساله`: إرسال رسالة خاصة إلى عضو.
 
+
+## المراسل الذكي (Groq)
+- `/تفعيل_وضع_مراسل`: اختيار روم نصي للمراسل الذكي.
+- `/إيقاف_وضع_مراسل`: إيقافه.
+- يعتمد على سياق آخر الرسائل، ولا يشغّل ردوده بسبب كلمات مفتاحية ثابتة. يرد عند منشن البوت، أو عندما تكون المحادثة النشطة بين شخص أو شخصين، مع مهلة لمنع الإزعاج.
+- مزود الذكاء الاصطناعي: Groq باستخدام نموذج `openai/gpt-oss-20b`.
+- أضف مفتاحك في GitHub Secrets باسم `GROQ_API_KEY`، ولا تضعه داخل ملفات المشروع.
+- فعّل Message Content Intent من Discord Developer Portal حتى يتمكن البوت من قراءة الرسائل.
+
 ## صلاحيات وإعداد
 1. ثبّت Node.js 20.11 أو أحدث.
 2. نفّذ `npm install`.
 3. أضف `DISCORD_TOKEN` و`CLIENT_ID` إلى متغيرات البيئة، ويمكن إضافة `GUILD_ID` للتسجيل السريع داخل سيرفر الاختبار.
-4. فعّل Server Members Intent وPresence Intent من Discord Developer Portal إذا أردت عداد المتصلين.
+4. فعّل Server Members Intent وPresence Intent من Discord Developer Portal إذا أردت عداد المتصلين، وMessage Content Intent للمراسل الذكي.
 5. امنح البوت صلاحيات View Channels وSend Messages وEmbed Links وConnect وSpeak وManage Messages وManage Channels وModerate Members وKick Members وBan Members حسب الأوامر التي ستستخدمها.
 6. نفّذ `npm run register` لتسجيل الأوامر، ثم شغّل البوت.
 
