@@ -152,7 +152,7 @@ async function startMusic(s,input){
   s.starting=true;
   try{
     let url=input.trim(),title=url;
-    if(!/^https?:\\/\\//i.test(url)){
+    if(!/^https?:\/\//i.test(url)){
       const results=await play.search(url,{limit:1});
       if(!results?.length)throw Error("ما لقيت نتيجة لهذا الاسم. جرّب عنواناً أو رابطاً آخر.");
       url=results[0].url;
