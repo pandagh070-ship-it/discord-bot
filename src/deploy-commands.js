@@ -6,7 +6,7 @@ const commands=[
     .setName("تفاعل")
     .setDescription("تشغيل أو إيقاف تذكير التفاعل")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addSubcommand(s=>s.setName("تشغيل").setDescription("تشغيل التذكير في روم"))
+    .addSubcommand(s=>s.setName("تشغيل").setDescription("تشغيل التذكير في روم")\n      .addChannelOption(o=>o.setName("الروم").setDescription("روم التذكير").addChannelTypes(ChannelType.GuildText).setRequired(true)))
     .addSubcommand(s=>s.setName("ايقاف").setDescription("إيقاف التذكير")),
 
   new SlashCommandBuilder()
