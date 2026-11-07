@@ -191,8 +191,8 @@ function musicControls(s,userId){
 }
 function musicModal(guildId,userId){
   const modal=new ModalBuilder().setCustomId(`musiclink:${guildId}:${userId}`).setTitle("تغيير رابط الموسيقى");
-  const input=new TextInputBuilder().setCustomId("url").setLabel("رابط YouTube أو SoundCloud")
-    .setStyle(TextInputStyle.Short).setPlaceholder("https://...").setRequired(true).setMaxLength(400);
+  const input=new TextInputBuilder().setCustomId("url").setLabel("اسم أغنية أو رابط")
+    .setStyle(TextInputStyle.Short).setPlaceholder("اسم الأغنية أو https://...").setRequired(true).setMaxLength(400);
   modal.addComponents(new ActionRowBuilder().addComponents(input));
   return modal;
 }
@@ -262,7 +262,7 @@ client.on(Events.InteractionCreate,async i=>{
       const s=sessions.get(guildId);
       if(!s)return i.reply({content:"انتهت جلسة الموسيقى. شغّل الأمر من جديد.",flags:MessageFlags.Ephemeral});
       const url=i.fields.getTextInputValue("url").trim();
-      if(!/^https:\/\//i.test(url))return i.reply({content:"أرسل رابط HTTPS صالحاً.",flags:MessageFlags.Ephemeral});
+      if(!url?.trim())return i.reply({content:"اكتب اسم أغنية أو رابطاً صالحاً.",flags:MessageFlags.Ephemeral});
       const title=await startMusic(s,url);
       return i.reply({content:"🎵 تم تشغيل: **"+title.slice(0,180)+"**",components:musicControls(s,userId),flags:MessageFlags.Ephemeral});
     }
