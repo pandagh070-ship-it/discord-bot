@@ -12,12 +12,12 @@ const {
 const play=require("play-dl");
 
 if(!process.env.DISCORD_TOKEN)throw Error("DISCORD_TOKEN missing");
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates]});
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences]});
 const dir=path.join(__dirname,"..","data"),file=path.join(dir,"engagement.json");
 fs.mkdirSync(dir,{recursive:true});
 let cfg={};
 try{cfg=JSON.parse(fs.readFileSync(file,"utf8"))}catch{}
-const timers=new Map(),sessions=new Map();
+const timers=new Map(),sessions=new Map(),presenceTimers=new Map();
 
 function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
 function schedule(id){
@@ -32,6 +32,29 @@ function schedule(id){
   },7200000);
   timers.set(id,timer);
 }
+
+function onlineCount(guild){
+  return guild.presences.cache.filter(p=>p.status==="online"&&!p.user?.bot).size;
+}
+async function refreshOnlineMessage(guild){
+  const c=cfg[guild.id]?.activeCount;
+  if(!c?.channelId||!c?.messageId)return;
+  try{
+    const channel=await client.channels.fetch(c.channelId);
+    if(!channel?.isTextBased())return;
+    const message=await channel.messages.fetch(c.messageId);
+    await message.edit({content:`🟢 **الأعضاء المتصلون الآن: ${onlineCount(guild)}**
+(لا يشمل البوتات)`});
+  }catch(e){console.error("Active count update:",e.message)}
+}
+function queueOnlineUpdate(guild){
+  if(presenceTimers.has(guild.id))clearTimeout(presenceTimers.get(guild.id));
+  presenceTimers.set(guild.id,setTimeout(()=>{
+    presenceTimers.delete(guild.id);
+    refreshOnlineMessage(guild).catch(console.error);
+  },1800));
+}
+
 function makeSession(guild){
   const s={
     guild,player:createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}}),
@@ -84,7 +107,18 @@ function musicModal(guildId,userId){
 
 client.once(Events.ClientReady,()=>{
   console.log("Eto bot online as "+client.user.tag);
-  for(const id of Object.keys(cfg))schedule(id);
+  for(const id of Object.keys(cfg)){
+    schedule(id);
+    if(cfg[id]?.activeCount){
+      const guild=client.guilds.cache.get(id);
+      if(guild)guild.members.fetch({withPresences:true}).then(()=>refreshOnlineMessage(guild)).catch(e=>console.error("Presence fetch:",e.message));
+    }
+  }
+});
+
+client.on(Events.PresenceUpdate,(oldPresence,newPresence)=>{
+  const guild=newPresence.guild||oldPresence?.guild;
+  if(guild&&cfg[guild.id]?.activeCount)queueOnlineUpdate(guild);
 });
 
 client.on(Events.InteractionCreate,async i=>{
@@ -119,6 +153,28 @@ client.on(Events.InteractionCreate,async i=>{
     }
 
     if(!i.isChatInputCommand())return;
+
+
+    if(i.commandName==="عدد_نشطين"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      const ch=i.options.getChannel("الروم");
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      await i.guild.members.fetch({withPresences:true});
+      const message=await ch.send({content:`🟢 **الأعضاء المتصلون الآن: ${onlineCount(i.guild)}**
+(لا يشمل البوتات)`});
+      cfg[i.guildId]={...(cfg[i.guildId]||{}),activeCount:{channelId:ch.id,messageId:message.id}};
+      save();
+      return i.editReply({content:"تم تفعيل عداد المتصلين في <#"+ch.id+">. سيُحدّث نفس الرسالة تلقائياً."});
+    }
+
+    if(i.commandName==="تحديث"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      const ch=i.options.getChannel("الروم"),message=i.options.getString("الرسالة");
+      await ch.send({content:"@everyone\n"+message,allowedMentions:{parse:["everyone"]}});
+      return i.reply({content:"تم إرسال إعلان التحديث في <#"+ch.id+"> مع منشن الجميع.",flags:MessageFlags.Ephemeral});
+    }
 
     if(i.commandName==="تفاعل"){
       if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
