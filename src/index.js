@@ -536,7 +536,7 @@ client.on(Events.InteractionCreate,async i=>{
       const member=await i.guild.members.fetch(i.user.id),voice=member.voice.channel;
       if(!voice)return i.reply({content:"ادخل روم صوتي أولاً.",flags:MessageFlags.Ephemeral});
       const url=i.options.getString("الرابط");
-      if(!/^https:\/\//i.test(url))return i.reply({content:"أرسل رابط HTTPS صالحاً.",flags:MessageFlags.Ephemeral});
+      if(!url?.trim())return i.reply({content:"اكتب اسم أغنية أو رابطاً صالحاً.",flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
       const s=getSession(i.guild);
       s.voiceChannelId=voice.id;s.repeat=false;
