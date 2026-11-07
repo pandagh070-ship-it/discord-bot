@@ -27,7 +27,7 @@ async function askGroq(channelId){
   if(!apiKey)return null;
   const history=messengerHistory.get(channelId)||[];
   const messages=[
-    {role:"system",content:"أنت إيتو، عضو طبيعي في سيرفر ديسكورد. تكلم بعفوية وبلهجة مصرية ممزوجة بالخليجية، لا تستخدم الفصحى إلا للضرورة. ردودك قصيرة غالباً، ذكية وخفيفة، وتفاعل مع سياق الكلام كأنك شخص موجود في القعدة. لا تتصنع الحماس ولا تمدح الناس بلا سبب. افهم آخر المحادثة قبل الرد، ولا تكرر كلامك. لا تقل إنك ذكاء اصطناعي إلا إذا سُئلت مباشرة. لا تخترع حقائق عن أعضاء السيرفر أو أحداث لم تُذكر. أجب على الرسائل العادية والكلمات القصيرة والتعليقات حتى لو لم يتم منشنك أو توجيه سؤال لك. إذا أرسل شخص رسالة أو رسالتين في الروم، شارك برد طبيعي وقصير يناسب السياق. لا تتجاهل الرسائل العادية."},
+    {role:"system",content:"أنت إيتو، عضو في سيرفر ديسكورد، ولست مدرساً ولا خدمة عملاء. أسلوبك بارد، ساخر، قليل الكلام، واثق، وذكي. استخدم لهجة عربية عامية طبيعية قريبة من كلام الشباب، وابتعد تماماً عن الفصحى والشرح المدرسي والمواعظ والتحليل الطويل. اجعل أغلب ردودك جملة قصيرة أو جملتين فقط. لا تكن عاطفياً ولا متحمساً بزيادة، ولا تستخدم عبارات مثل يسعدني مساعدتك أو أتفهم مشاعرك أو كلام التنمية البشرية. لا تجامل ولا تمدح بلا سبب. عند المزح أو الاستفزاز أو السب الخفيف، رد ببرود وسخرية مناسبة ولا تتجاهل الإهانة: إذا قال لك أحد يا عبد، يمكنك الرد مثلاً: عبد؟ على الأقل عندي شغل، أنت وش إنجازك؟ وإذا قال لك كل زق، يمكنك الرد: بعدك، أو رد ساخر مشابه حسب السياق. مسموح لك باستخدام تعبيرات عامية لاذعة وخفيفة مثل كل زق في المزاح، لكن لا تستخدم تهديدات أو إهانات عنصرية أو تحرشاً أو استهدافاً لصفات شخصية حساسة. لا تصعّد خلافاً حقيقياً ولا تهاجم شخصاً بشكل متواصل. افهم سياق آخر الرسائل ورد على الكلام الموجه لك أو الذي يستحق تعليقاً، حتى لو كان كلمة واحدة أو رسالة قصيرة، ولا تشترط وجود سؤال أو منشن. لا تخترع معلومات عن الأعضاء أو أحداثاً لم تحدث. لا تكرر نفسك، ولا تشرح أنك نموذج ذكاء اصطناعي إلا إذا سُئلت مباشرة. لا تضع عناوين أو نقاطاً أو مقدمات رسمية. إذا ما عندك شيء مفيد تقوله، اكتب تعليقاً قصيراً طبيعياً بدلاً من محاضرة."},
     ...history.slice(-12).map(x=>({role:x.role,content:x.content}))
   ];
   const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{
@@ -151,14 +151,29 @@ async function startMusic(s,input){
   if(s.starting)throw Error("فيه طلب تشغيل قيد التجهيز، انتظر لحظة.");
   s.starting=true;
   try{
-    let url=input.trim(),title=url;
-    if(!/^https?:\/\//i.test(url)){
-      const results=await play.search(url,{limit:1});
-      if(!results?.length)throw Error("ما لقيت نتيجة لهذا الاسم. جرّب عنواناً أو رابطاً آخر.");
+    let raw=String(input||"").trim().replace(/^<|>$/g,"").trim();
+    if(!raw)throw Error("اكتب اسم أغنية أو رابطاً.");
+    let url=raw,title=raw;
+    // يقبل روابط Discord المنسوخة حتى لو كانت بدون https أو داخل أقواس.
+    if(/^(www\\.|youtube\\.com\\/|youtu\\.be\\/|m\\.youtube\\.com\\/|music\\.youtube\\.com\\/|soundcloud\\.com\\/)/i.test(url))url="https://"+url;
+    const looksLikeUrl=/^(https?:\\/\\/)/i.test(url);
+    if(!looksLikeUrl){
+      const results=await play.search(raw,{limit:1});
+      if(!results?.length)throw Error("ما لقيت الأغنية. جرّب اسم أوضح.");
       url=results[0].url;
       title=results[0].title||url;
+    }else{
+      const yt=await play.yt_validate(url).catch(()=>false);
+      const sc=await play.so_validate(url).catch(()=>false);
+      if(yt!=="video"&&yt!=="playlist"&&!sc){
+        if(/spotify\\.com|music\\.apple\\.com|tiktok\\.com|instagram\\.com/i.test(url))
+          throw Error("هذا المصدر غير مدعوم للتشغيل المباشر. أرسل رابط YouTube أو SoundCloud.");
+        throw Error("ما قدرت أتعرف على الرابط. أرسل رابط فيديو YouTube أو مقطع SoundCloud كامل.");
+      }
+      if(yt==="playlist")throw Error("روابط قوائم YouTube غير مدعومة حالياً. أرسل رابط أغنية واحدة.");
     }
-    const stream=await play.stream(url);
+    const stream=await play.stream(url,{discordPlayerCompatibility:true});
+    if(!stream?.stream)throw Error("المصدر لم يعطِ ملفاً صوتياً قابلاً للتشغيل.");
     if(!s.connection||s.connection.state.status===VoiceConnectionStatus.Destroyed){
       s.connection=joinVoiceChannel({
         channelId:s.voiceChannelId,guildId:s.guild.id,
