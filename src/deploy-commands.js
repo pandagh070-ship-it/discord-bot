@@ -46,6 +46,41 @@ const commands=[
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addChannelOption(o=>o.setName("الروم").setDescription("روم إعلان التحديث").addChannelTypes(ChannelType.GuildText).setRequired(true))
     .addStringOption(o=>o.setName("الرسالة").setDescription("تفاصيل التحديث").setRequired(true).setMaxLength(1800)),
+
+  new SlashCommandBuilder()
+    .setName("afk").setDescription("إبقاء البوت في روم صوتي حتى إخراجه")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand(s=>s.setName("دخول").setDescription("إدخال البوت إلى روم صوتي")
+      .addChannelOption(o=>o.setName("الروم").setDescription("الروم الصوتي").addChannelTypes(ChannelType.GuildVoice,ChannelType.GuildStageVoice).setRequired(true)))
+    .addSubcommand(s=>s.setName("خروج").setDescription("إخراج البوت من الروم الصوتي"))
+    .addSubcommand(s=>s.setName("حالة").setDescription("معرفة الروم الذي يقف فيه البوت")),
+  new SlashCommandBuilder().setName("مساعدة").setDescription("عرض قائمة أوامر بوت Eto"),
+  new SlashCommandBuilder().setName("عضو").setDescription("عرض معلومات عضو")
+    .addUserOption(o=>o.setName("العضو").setDescription("العضو المطلوب").setRequired(false)),
+  new SlashCommandBuilder().setName("سيرفر").setDescription("عرض معلومات السيرفر"),
+  new SlashCommandBuilder().setName("مسح").setDescription("حذف عدد من الرسائل")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+    .addIntegerOption(o=>o.setName("العدد").setDescription("من 1 إلى 100").setMinValue(1).setMaxValue(100).setRequired(true)),
+  new SlashCommandBuilder().setName("قفل").setDescription("قفل الكتابة في الروم الحالي")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+  new SlashCommandBuilder().setName("فتح").setDescription("فتح الكتابة في الروم الحالي")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+  new SlashCommandBuilder().setName("بطء").setDescription("تحديد مهلة بين الرسائل في الروم")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .addIntegerOption(o=>o.setName("ثواني").setDescription("من 0 إلى 21600").setMinValue(0).setMaxValue(21600).setRequired(true)),
+  new SlashCommandBuilder().setName("مهلة").setDescription("إعطاء عضو مهلة مؤقتة")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(o=>o.setName("العضو").setDescription("العضو").setRequired(true))
+    .addIntegerOption(o=>o.setName("دقائق").setDescription("مدة المهلة بالدقائق").setMinValue(1).setMaxValue(40320).setRequired(true))
+    .addStringOption(o=>o.setName("السبب").setDescription("السبب").setMaxLength(500).setRequired(false)),
+  new SlashCommandBuilder().setName("طرد").setDescription("طرد عضو من السيرفر")
+    .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
+    .addUserOption(o=>o.setName("العضو").setDescription("العضو").setRequired(true))
+    .addStringOption(o=>o.setName("السبب").setDescription("السبب").setMaxLength(500).setRequired(false)),
+  new SlashCommandBuilder().setName("حظر").setDescription("حظر عضو من السيرفر")
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .addUserOption(o=>o.setName("العضو").setDescription("العضو").setRequired(true))
+    .addStringOption(o=>o.setName("السبب").setDescription("السبب").setMaxLength(500).setRequired(false)),
 ].map(x=>x.toJSON());
 
 (async()=>{
@@ -53,5 +88,5 @@ const commands=[
   if(!DISCORD_TOKEN||!CLIENT_ID)throw Error("Set DISCORD_TOKEN and CLIENT_ID in .env");
   const rest=new REST({version:"10"}).setToken(DISCORD_TOKEN);
   await rest.put(GUILD_ID?Routes.applicationGuildCommands(CLIENT_ID,GUILD_ID):Routes.applicationCommands(CLIENT_ID),{body:commands});
-  console.log("Registered 6 commands.");
+  console.log(`Registered ${commands.length} commands.`);
 })().catch(e=>{console.error(e);process.exit(1);});
