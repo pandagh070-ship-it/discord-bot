@@ -56,7 +56,7 @@ client.on(Events.MessageCreate,async message=>{
     const lastReply=messengerCooldown.get(message.channelId)||0;
     const conversationActive=recent.filter(x=>x.role==="user").length>=2&&participants.size<=2;
     messengerHistory.set(message.channelId,history.slice(-16));
-    if((!mentioned&&!conversationActive)||now-lastReply<15000)return;
+    if((!mentioned&&!conversationActive)||(!mentioned&&now-lastReply<8000))return;
     if(!process.env.GROQ_API_KEY){
       if(!global.groqKeyWarning){console.warn("Messenger enabled but GROQ_API_KEY is not configured.");global.groqKeyWarning=true}
       return;
