@@ -29,7 +29,7 @@ const commands=[
     .setName("موسيقى")
     .setDescription("تشغيل الموسيقى والتحكم بها")
     .addSubcommand(s=>s.setName("تشغيل").setDescription("تشغيل رابط صوتي")
-      .addStringOption(o=>o.setName("الرابط").setDescription("رابط YouTube أو SoundCloud").setRequired(true)))
+      .addStringOption(o=>o.setName("الرابط").setDescription("اسم أغنية أو رابط YouTube أو SoundCloud").setRequired(true)))
     .addSubcommand(s=>s.setName("ايقاف").setDescription("إيقاف الموسيقى ومغادرة الروم")),
 
   new SlashCommandBuilder()
