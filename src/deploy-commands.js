@@ -63,7 +63,11 @@ const commands=[
       .addChannelOption(o=>o.setName("الروم").setDescription("الروم الصوتي").addChannelTypes(ChannelType.GuildVoice,ChannelType.GuildStageVoice).setRequired(true)))
     .addSubcommand(s=>s.setName("خروج").setDescription("إخراج البوت من الروم الصوتي"))
     .addSubcommand(s=>s.setName("حالة").setDescription("معرفة الروم الذي يقف فيه البوت")),
-  new SlashCommandBuilder().setName("مساعدة").setDescription("عرض قائمة أوامر بوت Eto"),
+  new SlashCommandBuilder().setName("مساعدة").setDescription("فتح مركز Eto التفاعلي"),
+  new SlashCommandBuilder().setName("نشرة_إيتو").setDescription("اقرأ نشرة غريبة من عالم Eto"),
+  new SlashCommandBuilder().setName("ماذا_لو").setDescription("حوّل فكرة قصيرة إلى سيناريو غير متوقع")
+    .addStringOption(o=>o.setName("الفكرة").setDescription("ماذا لو حدث...؟").setRequired(true).setMaxLength(180)),
+  new SlashCommandBuilder().setName("بصمة").setDescription("اكتشف وصفاً خيالياً لشخصيتك داخل Eto"),
   new SlashCommandBuilder().setName("عضو").setDescription("عرض معلومات عضو")
     .addUserOption(o=>o.setName("العضو").setDescription("العضو المطلوب").setRequired(false)),
   new SlashCommandBuilder().setName("سيرفر").setDescription("عرض معلومات السيرفر"),
