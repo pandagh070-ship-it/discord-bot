@@ -3,6 +3,15 @@ const {REST,Routes,SlashCommandBuilder,PermissionFlagsBits,ChannelType}=require(
 
 const commands=[
   new SlashCommandBuilder()
+    .setName("تفعيل_وضع_مراسل")
+    .setDescription("تفعيل المراسل الذكي في روم محدد")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addChannelOption(o=>o.setName("الروم").setDescription("الروم الذي سيتفاعل فيه المراسل").addChannelTypes(ChannelType.GuildText).setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("إيقاف_وضع_مراسل")
+    .setDescription("إيقاف المراسل الذكي")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder()
     .setName("تفاعل")
     .setDescription("تشغيل أو إيقاف تذكير التفاعل")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
