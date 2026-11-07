@@ -21,6 +21,23 @@ const timers=new Map(),sessions=new Map(),presenceTimers=new Map();
 
 function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
 
+async function loadChannelBackups(){
+  const token=process.env.GITHUB_TOKEN,repoName=process.env.GITHUB_REPOSITORY||"pandagh070-ship-it/discord-bot";
+  if(!token)throw Error("GITHUB_TOKEN غير مضبوط في بيئة التشغيل.");
+  const url="https://api.github.com/repos/"+repoName+"/contents/data/channel-backups.json";
+  const res=await fetch(url,{headers:{Authorization:"Bearer "+token,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}});
+  if(res.status===404)return {data:{},sha:null,url,token};
+  if(!res.ok)throw Error("تعذر قراءة النسخة الاحتياطية من GitHub ("+res.status+").");
+  const file=await res.json();
+  return {data:JSON.parse(Buffer.from(file.content.replace(/\\n/g,""),"base64").toString("utf8")),sha:file.sha,url,token};
+}
+async function saveChannelBackups(data,sha,url,token){
+  const content=Buffer.from(JSON.stringify(data,null,2)).toString("base64");
+  const res=await fetch(url,{method:"PUT",headers:{Authorization:"Bearer "+token,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"},body:JSON.stringify({message:"Save Discord channel name backup",content,...(sha?{sha}:{})})});
+  if(!res.ok){const body=await res.text();throw Error("تعذر حفظ النسخة الاحتياطية ("+res.status+"): "+body.slice(0,300));}
+}
+
+
 const messengerHistory=new Map(),messengerTimers=new Map();
 async function askGroq(channelId){
   const apiKey=process.env.GROQ_API_KEY;
@@ -299,6 +316,53 @@ client.on(Events.InteractionCreate,async i=>{
     if(!i.isChatInputCommand())return;
 
 
+
+
+    if(i.commandName==="تهكير"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({content:"تحتاج صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const store=await loadChannelBackups();
+      if(store.data[i.guildId])
+        return i.editReply("فيه نسخة احتياطية محفوظة بالفعل. استخدم /ارجاع_تهكير أولاً حتى لا تضيع الأسماء الأصلية.");
+      await i.guild.channels.fetch();
+      const channels=[...i.guild.channels.cache.values()].filter(ch=>
+        !ch.isThread()&&ch.manageable&&ch.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageChannels)
+      );
+      if(!channels.length)return i.editReply("ما لقيت رومات أقدر أعدل أسماءها. تأكد من صلاحية Manage Channels للبوت.");
+      const original={guildName:i.guild.name,createdAt:Date.now(),channels:Object.fromEntries(channels.map(ch=>[ch.id,ch.name]))};
+      store.data[i.guildId]=original;
+      await saveChannelBackups(store.data,store.sha,store.url,store.token);
+      let changed=0,failed=0;
+      for(const channel of channels){
+        try{await channel.setName("ايتو عمك","مقلب تغيير أسماء الرومات");changed++}
+        catch(e){failed++;console.error("Channel rename:",channel.id,e.message)}
+      }
+      return i.editReply("💻 تم تفعيل المقلب!\nتم تغيير أسماء **"+changed+"** روم إلى **ايتو عمك**."+(failed?"\nتعذر تعديل "+failed+" رومات بسبب الصلاحيات أو قيود Discord.":"")+"\nالنسخة الأصلية محفوظة. استخدم /ارجاع_تهكير لإرجاعها.");
+    }
+
+    if(i.commandName==="ارجاع_تهكير"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({content:"تحتاج صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const store=await loadChannelBackups();
+      const backup=store.data[i.guildId];
+      if(!backup)return i.editReply("ما فيه نسخة احتياطية لهذا السيرفر. شغّل /تهكير أولاً.");
+      await i.guild.channels.fetch();
+      let restored=0,missing=0,failed=0;
+      for(const [id,name] of Object.entries(backup.channels)){
+        const channel=i.guild.channels.cache.get(id);
+        if(!channel){missing++;continue}
+        if(!channel.manageable||!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageChannels)){failed++;continue}
+        try{await channel.setName(name,"إرجاع أسماء الرومات الأصلية");restored++}
+        catch(e){failed++;console.error("Channel restore:",id,e.message)}
+      }
+      if(missing===0&&failed===0){
+        delete store.data[i.guildId];
+        await saveChannelBackups(store.data,store.sha,store.url,store.token);
+      }
+      return i.editReply("♻️ انتهى الاسترجاع.\nتم إرجاع **"+restored+"** روم إلى أسمائها الأصلية."+(missing?"\nرومات محذوفة أو غير موجودة: "+missing+".":"")+(failed?"\nتعذر إرجاع "+failed+" رومات. النسخة الاحتياطية ما زالت محفوظة لإعادة المحاولة.":"\nتم حذف النسخة الاحتياطية بعد نجاح الاسترجاع."));
+    }
 
     if(i.commandName==="تفعيل_وضع_مراسل"){
       if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
