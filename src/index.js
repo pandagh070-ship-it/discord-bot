@@ -182,7 +182,7 @@ client.on(Events.InteractionCreate,async i=>{
         return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
       if(i.options.getSubcommand()==="تشغيل"){
         const ch=i.options.getChannel("الروم");
-        cfg[i.guildId]={enabled:true,channelId:ch.id,message:"❄️ وقت التفاعل! شاركونا وجودكم في السيرفر."};
+        cfg[i.guildId]={...(cfg[i.guildId]||{}),enabled:true,channelId:ch.id,message:"❄️ وقت التفاعل! شاركونا وجودكم في السيرفر."};
         save();schedule(i.guildId);
         return i.reply({content:"تم تشغيل التذكير في <#"+ch.id+">. سيبدأ الإرسال بعد ساعتين.",flags:MessageFlags.Ephemeral});
       }
