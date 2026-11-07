@@ -33,7 +33,27 @@ function schedule(id){
   timers.set(id,timer);
 }
 
-function onlineCount(guild){
+
+const afkConnections=new Map();
+function joinAfk(guild,channel){
+  const old=afkConnections.get(guild.id);
+  if(old){try{old.destroy()}catch{}}
+  const connection=joinVoiceChannel({
+    channelId:channel.id,guildId:guild.id,adapterCreator:guild.voiceAdapterCreator,
+    selfDeaf:true,selfMute:true
+  });
+  afkConnections.set(guild.id,connection);
+  cfg[guild.id]={...(cfg[guild.id]||{}),afkChannelId:channel.id};
+  save();
+  return connection;
+}
+function leaveAfk(guildId){
+  const connection=afkConnections.get(guildId);
+  if(connection){try{connection.destroy()}catch{}}
+  afkConnections.delete(guildId);
+  if(cfg[guildId]){delete cfg[guildId].afkChannelId;save()}
+}
+\nfunction onlineCount(guild){
   return guild.presences.cache.filter(p=>p.status==="online"&&!p.user?.bot).size;
 }
 async function refreshOnlineMessage(guild){
@@ -109,10 +129,27 @@ client.once(Events.ClientReady,()=>{
   console.log("Eto bot online as "+client.user.tag);
   for(const id of Object.keys(cfg)){
     schedule(id);
+    if(cfg[id]?.afkChannelId){
+      const guild=client.guilds.cache.get(id);
+      const channel=guild?.channels.cache.get(cfg[id].afkChannelId);
+      if(guild&&channel&&channel.isVoiceBased()){
+        try{joinAfk(guild,channel)}catch(e){console.error("AFK restore:",e.message)}
+      }else{delete cfg[id].afkChannelId;save()}
+    }
     if(cfg[id]?.activeCount){
       const guild=client.guilds.cache.get(id);
       if(guild)guild.members.fetch({withPresences:true}).then(()=>refreshOnlineMessage(guild)).catch(e=>console.error("Presence fetch:",e.message));
     }
+  }
+});
+
+client.on(Events.VoiceStateUpdate,(oldState,newState)=>{
+  if(newState.id!==client.user?.id)return;
+  if(oldState.channelId&&!newState.channelId){
+    leaveAfk(newState.guild.id);
+  }else if(newState.channelId&&cfg[newState.guild.id]?.afkChannelId!==newState.channelId){
+    cfg[newState.guild.id]={...(cfg[newState.guild.id]||{}),afkChannelId:newState.channelId};
+    save();
   }
 });
 
@@ -155,6 +192,112 @@ client.on(Events.InteractionCreate,async i=>{
 
     if(!i.isChatInputCommand())return;
 
+
+
+    if(i.commandName==="afk"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر للتحكم بوضع AFK.",flags:MessageFlags.Ephemeral});
+      const sub=i.options.getSubcommand();
+      if(sub==="دخول"){
+        const channel=i.options.getChannel("الروم");
+        if(!channel?.isVoiceBased())return i.reply({content:"اختر روم صوتي صالحاً.",flags:MessageFlags.Ephemeral});
+        joinAfk(i.guild,channel);
+        return i.reply({content:"💤 دخل البوت <#"+channel.id+"> وسيبقى هناك حتى تستخدم /afk خروج أو تخرجه يدوياً.",flags:MessageFlags.Ephemeral});
+      }
+      if(sub==="خروج"){
+        leaveAfk(i.guildId);
+        return i.reply({content:"تم إخراج البوت من الروم الصوتي.",flags:MessageFlags.Ephemeral});
+      }
+      const channelId=cfg[i.guildId]?.afkChannelId;
+      return i.reply({content:channelId?"البوت موجود حالياً في <#"+channelId+">.":"البوت ليس في وضع AFK حالياً.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="مساعدة"){
+      const embed=new EmbedBuilder().setColor(0x7BC8F6).setTitle("❄️ Eto Network | مركز الأوامر")
+        .setDescription("أوامر الإدارة والأعضاء والصوت في مكان واحد.")
+        .addFields(
+          {name:"🎧 الصوت",value:"/afk دخول • /afk خروج • /afk حالة\n/موسيقى تشغيل • /موسيقى ايقاف"},
+          {name:"🛡️ الإدارة",value:"/تحذير • /مهلة • /طرد • /حظر\n/مسح • /قفل • /فتح • /بطء"},
+          {name:"👥 الأعضاء",value:"/عضو • /سيرفر • /رساله"},
+          {name:"⚙️ الأدوات",value:"/تفاعل • /عدد_نشطين • /تحديث"}
+        ).setFooter({text:"Eto Bot • ❄️"});
+      return i.reply({embeds:[embed],flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="عضو"){
+      const user=i.options.getUser("العضو")||i.user;
+      const member=await i.guild.members.fetch(user.id).catch(()=>null);
+      const embed=new EmbedBuilder().setColor(0x7BC8F6).setTitle("👤 معلومات العضو")
+        .setThumbnail(user.displayAvatarURL({size:256}))
+        .addFields(
+          {name:"الاسم",value:user.tag,inline:true},
+          {name:"المعرف",value:user.id,inline:true},
+          {name:"الحساب",value:"<t:"+Math.floor(user.createdTimestamp/1000)+":R>",inline:true},
+          {name:"انضم للسيرفر",value:member?.joinedTimestamp?"<t:"+Math.floor(member.joinedTimestamp/1000)+":R>":"غير متاح",inline:true},
+          {name:"البوت؟",value:user.bot?"نعم":"لا",inline:true}
+        );
+      return i.reply({embeds:[embed],flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="سيرفر"){
+      const g=i.guild;
+      const embed=new EmbedBuilder().setColor(0x7BC8F6).setTitle("🏠 "+g.name)
+        .setThumbnail(g.iconURL({size:256}))
+        .addFields(
+          {name:"المالك",value:"<@"+g.ownerId+">",inline:true},
+          {name:"الأعضاء",value:String(g.memberCount),inline:true},
+          {name:"الرومات",value:String(g.channels.cache.size),inline:true},
+          {name:"تاريخ الإنشاء",value:"<t:"+Math.floor(g.createdTimestamp/1000)+":D>",inline:true},
+          {name:"المستوى",value:String(g.premiumTier),inline:true}
+        );
+      return i.reply({embeds:[embed],flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="مسح"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageMessages))
+        return i.reply({content:"تحتاج صلاحية إدارة الرسائل.",flags:MessageFlags.Ephemeral});
+      const amount=i.options.getInteger("العدد");
+      const deleted=await i.channel.bulkDelete(amount,true);
+      return i.reply({content:"🧹 تم حذف "+deleted.size+" رسالة. الرسائل الأقدم من 14 يوماً لا يمكن حذفها بهذه الطريقة.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="قفل"||i.commandName==="فتح"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({content:"تحتاج صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
+      const lock=i.commandName==="قفل";
+      await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:lock?false:null});
+      return i.reply({content:lock?"🔒 تم قفل الكتابة في هذا الروم.":"🔓 تم فتح الكتابة وإزالة منع الكتابة العام.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="بطء"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({content:"تحتاج صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
+      const seconds=i.options.getInteger("ثواني");
+      await i.channel.setRateLimitPerUser(seconds);
+      return i.reply({content:seconds?("🐢 تم ضبط مهلة إرسال الرسائل على "+seconds+" ثانية."):"تم إيقاف وضع البطء.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="مهلة"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ModerateMembers))
+        return i.reply({content:"تحتاج صلاحية إدارة الأعضاء.",flags:MessageFlags.Ephemeral});
+      const user=i.options.getUser("العضو"),minutes=i.options.getInteger("دقائق"),reason=i.options.getString("السبب")||"بدون سبب";
+      if(user.id===i.user.id||user.id===client.user.id)return i.reply({content:"لا يمكن تطبيق المهلة على هذا الحساب.",flags:MessageFlags.Ephemeral});
+      const member=await i.guild.members.fetch(user.id);
+      await member.timeout(minutes*60000,reason);
+      return i.reply({content:"⏳ تم إعطاء <@"+user.id+"> مهلة لمدة "+minutes+" دقيقة. السبب: "+reason});
+    }
+
+    if(i.commandName==="طرد"||i.commandName==="حظر"){
+      const isBan=i.commandName==="حظر";
+      const permission=isBan?PermissionFlagsBits.BanMembers:PermissionFlagsBits.KickMembers;
+      if(!i.memberPermissions?.has(permission))
+        return i.reply({content:isBan?"تحتاج صلاحية حظر الأعضاء.":"تحتاج صلاحية طرد الأعضاء.",flags:MessageFlags.Ephemeral});
+      const user=i.options.getUser("العضو"),reason=i.options.getString("السبب")||"بدون سبب";
+      if(user.id===i.user.id||user.id===client.user.id)return i.reply({content:"لا يمكن تنفيذ هذا الإجراء على هذا الحساب.",flags:MessageFlags.Ephemeral});
+      const member=await i.guild.members.fetch(user.id);
+      if(isBan)await member.ban({reason});else await member.kick(reason);
+      return i.reply({content:(isBan?"🔨 تم حظر ":"👢 تم طرد ")+user.tag+". السبب: "+reason});
+    }
 
     if(i.commandName==="عدد_نشطين"){
       if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
