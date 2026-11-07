@@ -41,7 +41,7 @@ jobs:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           GUILD_ID: ${{ secrets.GUILD_ID }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}\n          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           npm run register
           npm start
