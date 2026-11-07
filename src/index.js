@@ -21,13 +21,13 @@ const timers=new Map(),sessions=new Map(),presenceTimers=new Map();
 
 function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
 
-const messengerHistory=new Map(),messengerCooldown=new Map();
+const messengerHistory=new Map(),messengerTimers=new Map();
 async function askGroq(channelId){
   const apiKey=process.env.GROQ_API_KEY;
   if(!apiKey)return null;
   const history=messengerHistory.get(channelId)||[];
   const messages=[
-    {role:"system",content:"أنت إيتو، عضو طبيعي في سيرفر ديسكورد. تكلم بعفوية وبلهجة مصرية ممزوجة بالخليجية، لا تستخدم الفصحى إلا للضرورة. ردودك قصيرة غالباً، ذكية وخفيفة، وتفاعل مع سياق الكلام كأنك شخص موجود في القعدة. لا تتصنع الحماس ولا تمدح الناس بلا سبب. افهم آخر المحادثة قبل الرد، ولا تكرر كلامك. لا تقل إنك ذكاء اصطناعي إلا إذا سُئلت مباشرة. لا تخترع حقائق عن أعضاء السيرفر أو أحداث لم تُذكر. إذا تم منشنك أو وُجه لك سؤال، أجب دائمًا ولا تستخدم [SKIP]. وفي المحادثة النشطة بين شخصين، شارك برد قصير وطبيعي على الرسائل الجديدة حتى لو كان تعليقًا بسيطًا. لا تستخدم [SKIP] إلا للرسائل الفارغة أو السبام الواضح أو الأوامر غير الموجهة لك."},
+    {role:"system",content:"أنت إيتو، عضو طبيعي في سيرفر ديسكورد. تكلم بعفوية وبلهجة مصرية ممزوجة بالخليجية، لا تستخدم الفصحى إلا للضرورة. ردودك قصيرة غالباً، ذكية وخفيفة، وتفاعل مع سياق الكلام كأنك شخص موجود في القعدة. لا تتصنع الحماس ولا تمدح الناس بلا سبب. افهم آخر المحادثة قبل الرد، ولا تكرر كلامك. لا تقل إنك ذكاء اصطناعي إلا إذا سُئلت مباشرة. لا تخترع حقائق عن أعضاء السيرفر أو أحداث لم تُذكر. أجب على الرسائل العادية والكلمات القصيرة والتعليقات حتى لو لم يتم منشنك أو توجيه سؤال لك. إذا أرسل شخص رسالة أو رسالتين في الروم، شارك برد طبيعي وقصير يناسب السياق. لا تتجاهل الرسائل العادية."},
     ...history.slice(-12).map(x=>({role:x.role,content:x.content}))
   ];
   const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{
@@ -47,31 +47,35 @@ client.on(Events.MessageCreate,async message=>{
     if(!settings?.enabled||settings.channelId!==message.channelId)return;
     const content=message.content?.trim();
     if(!content)return;
-    const now=Date.now();
     const history=messengerHistory.get(message.channelId)||[];
-    history.push({role:"user",content:message.author.username+": "+content,at:now});
-    const recent=history.filter(x=>now-x.at<60000);
-    const participants=new Set(recent.filter(x=>x.role==="user").map(x=>x.content.split(": ")[0]));
-    const mentioned=message.mentions.has(client.user);
-    const lastReply=messengerCooldown.get(message.channelId)||0;
-    const conversationActive=recent.filter(x=>x.role==="user").length>=2&&participants.size<=2;
+    history.push({role:"user",content:message.author.username+": "+content,at:Date.now()});
     messengerHistory.set(message.channelId,history.slice(-16));
-    if(!mentioned&&now-lastReply<8000)return;
-    if(!process.env.GROQ_API_KEY){
-      if(!global.groqKeyWarning){console.warn("Messenger enabled but GROQ_API_KEY is not configured.");global.groqKeyWarning=true}
-      return;
-    }
-    messengerCooldown.set(message.channelId,now);
-    const answer=await askGroq(message.channelId);
-    if(!answer||answer==="[SKIP]")return;
-    const safe=answer.replace(/@everyone|@here/g,"").slice(0,1900);
-    if(!safe.trim())return;
-    await message.reply({content:safe,allowedMentions:{parse:[]}});
-    const updated=messengerHistory.get(message.channelId)||[];
-    updated.push({role:"assistant",content:safe,at:Date.now()});
-    messengerHistory.set(message.channelId,updated.slice(-16));
+
+    // اجمع الرسائل المتقاربة ثم رد بعد توقف بسيط.
+    const oldTimer=messengerTimers.get(message.channelId);
+    if(oldTimer)clearTimeout(oldTimer);
+    const timer=setTimeout(async()=>{
+      messengerTimers.delete(message.channelId);
+      try{
+        if(!process.env.GROQ_API_KEY){
+          if(!global.groqKeyWarning){console.warn("Messenger enabled but GROQ_API_KEY is not configured.");global.groqKeyWarning=true}
+          return;
+        }
+        const answer=await askGroq(message.channelId);
+        if(!answer)return;
+        const safe=answer.replace(/@everyone|@here/g,"").replace(/^\[SKIP\]$/i,"").slice(0,1900);
+        if(!safe.trim())return;
+        await message.reply({content:safe,allowedMentions:{parse:[]}});
+        const updated=messengerHistory.get(message.channelId)||[];
+        updated.push({role:"assistant",content:safe,at:Date.now()});
+        messengerHistory.set(message.channelId,updated.slice(-16));
+      }catch(e){console.error("Messenger:",e.message)}
+    },1300);
+    messengerTimers.set(message.channelId,timer);
   }catch(e){console.error("Messenger:",e.message)}
 });
+
+
 function schedule(id){
   if(timers.has(id))clearInterval(timers.get(id));
   const c=cfg[id];
