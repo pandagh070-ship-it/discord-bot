@@ -93,6 +93,33 @@ client.on(Events.MessageCreate,async message=>{
 });
 
 
+const mikuFrames = [
+  "```text\n       ♡\n    (｡•̀ᴗ-)✧\n   /|  🎤 |\\\n    /   \\\n   ♪     ♫\n```",
+  "```text\n       ♡\n    (๑˃ᴗ˂)ﻭ\n   \\|  🎤 |/\n     /   \\\n   ♫     ♪\n```",
+  "```text\n      ☆彡\n    (ﾉ◕ヮ◕)ﾉ\n    /|     |\\\n     /     \\\n   ♪  ♫  ♪\n```",
+  "```text\n       ✧\n    (≧▽≦)/\n   \\|  🎤 |\n     /   \\\n   ♫     ♬\n```"
+];
+const mikuTimers = new Map();
+
+function runMikuAnimation(guildId, channelId, messageId, startFrame=0) {
+  if (mikuTimers.has(guildId)) clearInterval(mikuTimers.get(guildId));
+  let frame = startFrame % mikuFrames.length;
+  const timer = setInterval(async () => {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel?.isTextBased()) throw Error("Miku channel unavailable");
+      const message = await channel.messages.fetch(messageId);
+      frame = (frame + 1) % mikuFrames.length;
+      await message.edit({content:mikuFrames[frame], allowedMentions:{parse:[]}});
+      if (cfg[guildId]?.miku) { cfg[guildId].miku.frame = frame; save(); }
+    } catch (e) {
+      console.error("Miku animation:", e.message);
+      clearInterval(timer); mikuTimers.delete(guildId);
+    }
+  }, 1400);
+  mikuTimers.set(guildId, timer);
+}
+
 function schedule(id){
   if(timers.has(id))clearInterval(timers.get(id));
   const c=cfg[id];
@@ -233,6 +260,10 @@ client.once(Events.ClientReady,()=>{
   console.log("Eto bot online as "+client.user.tag);
   for(const id of Object.keys(cfg)){
     schedule(id);
+    if(cfg[id]?.miku){
+      const m=cfg[id].miku;
+      runMikuAnimation(id,m.channelId,m.messageId,m.frame||0);
+    }
     if(cfg[id]?.afkChannelId){
       const guild=client.guilds.cache.get(id);
       const channel=guild?.channels.cache.get(cfg[id].afkChannelId);
@@ -317,6 +348,27 @@ client.on(Events.InteractionCreate,async i=>{
 
 
 
+
+    if(i.commandName==="miku"){
+      const channel=i.options.getChannel("الروم");
+      if(!channel?.isTextBased())
+        return i.reply({content:"اختر رومًا نصيًا صالحًا.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      let message=null;
+      const old=cfg[i.guildId]?.miku;
+      if(old?.channelId===channel.id){
+        try{message=await channel.messages.fetch(old.messageId)}catch{}
+      }
+      if(message){
+        await message.edit({content:mikuFrames[0],allowedMentions:{parse:[]}});
+      }else{
+        message=await channel.send({content:mikuFrames[0],allowedMentions:{parse:[]}});
+      }
+      cfg[i.guildId]={...(cfg[i.guildId]||{}),miku:{channelId:channel.id,messageId:message.id,frame:0}};
+      save();
+      runMikuAnimation(i.guildId,channel.id,message.id,0);
+      return i.editReply({content:"بدأت ميكو ترقص في "+channel+". الرسمة تتغير داخل نفس الرسالة كل 1.4 ثانية."});
+    }
 
     if(i.commandName==="تهكير"){
       if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
