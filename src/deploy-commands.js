@@ -96,6 +96,11 @@ const commands=[
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addUserOption(o=>o.setName("العضو").setDescription("العضو").setRequired(true))
     .addStringOption(o=>o.setName("السبب").setDescription("السبب").setMaxLength(500).setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("miku")
+    .setDescription("عرض هاتسوني ميكو وهي ترقص برسمة متحركة")
+    .addChannelOption(o=>o.setName("الروم").setDescription("الروم الذي ستظهر فيه ميكو").addChannelTypes(ChannelType.GuildText).setRequired(true)),
+
 ].map(x=>x.toJSON());
 
 (async()=>{
