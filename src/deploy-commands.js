@@ -102,7 +102,7 @@ const commands=[
     .addChannelOption(o=>o.setName("الروم").setDescription("الروم الذي ستظهر فيه ميكو").addChannelTypes(ChannelType.GuildText).setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName("Miku2")
+    .setName("miku2")
     .setDescription("إرسال ترحيب ميكو في الخاص إلى أعضاء السيرفر")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
