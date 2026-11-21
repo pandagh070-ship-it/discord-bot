@@ -348,6 +348,26 @@ client.on(Events.InteractionCreate,async i=>{
 
 
 
+    if(i.commandName==="Miku2"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const members=await i.guild.members.fetch();
+      const recipients=[...members.values()].filter(member=>!member.user.bot);
+      let sent=0,failed=0;
+      const welcome="🎤 ميكو ترحب بكم! 🥬\\n\\n"+mikuFrames[0];
+      for(let n=0;n<recipients.length;n++){
+        try{
+          await recipients[n].send({content:welcome,allowedMentions:{parse:[]}});
+          sent++;
+        }catch{failed++}
+        if((n+1)%25===0)
+          await i.editReply({content:"جاري إرسال ترحيب ميكو... "+(n+1)+"/"+recipients.length});
+        await new Promise(resolve=>setTimeout(resolve,500));
+      }
+      return i.editReply({content:"🎤 انتهى ترحيب ميكو!\\nوصلت الرسالة إلى: "+sent+" عضو.\\nتعذر الإرسال إلى: "+failed+" عضو (غالباً الخاص مغلق)."});
+    }
+
     if(i.commandName==="miku"){
       const channel=i.options.getChannel("الروم");
       if(!channel?.isTextBased())
