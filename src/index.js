@@ -348,7 +348,7 @@ client.on(Events.InteractionCreate,async i=>{
 
 
 
-    if(i.commandName==="Miku2"){
+    if(i.commandName==="miku2"){
       if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
         return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
