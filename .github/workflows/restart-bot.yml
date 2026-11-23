@@ -1,8 +1,6 @@
 name: Restart Eto Bot With Latest Code
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
