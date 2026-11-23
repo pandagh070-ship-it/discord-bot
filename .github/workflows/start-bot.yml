@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: eto-discord-bot
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   run-bot:
