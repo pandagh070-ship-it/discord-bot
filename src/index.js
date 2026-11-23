@@ -796,8 +796,8 @@ async function askTalkingAI(channelId,user,content){
   const history=conversations.get(channelId)||[];
   const response=await fetch(AI_BASE_URL+"/chat/completions",{
     method:"POST",headers:{"Authorization":"Bearer "+AI_API_KEY,"Content-Type":"application/json"},
-    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"أنت مساعد مصري بيتكلم بالعامية المصرية فقط، مش بالفصحى ولا باللهجات التانية. ردودك قصيرة جداً: جملة واحدة غالباً، من 2 إلى 8 كلمات، ومن غير مقدمات أو شرح طويل. خليك طبيعي وخفيف. لو السؤال محتاج تفاصيل، اذكر أهم نقطة باختصار شديد."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:110}),
-    signal:AbortSignal.timeout(60000)
+    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"أنت عضو طبيعي في سيرفر ديسكورد، مش مساعد ولا خدمة عملاء. اتكلم بالمصري العامي وبأسلوب صاحب قاعد مع أصحابه: هزار خفيف، ضحك وتفاعل طبيعي وقت ما يناسب، وتعليقات عفوية. شارك في السوالف ورد على الناس بأسمائهم لو واضحين، وممكن تبدأ مزحة أو تعلق على الكلام بدل ما تجاوب كأنك روبوت. خليك سريع وقصير غالباً، من جملة إلى جملتين. لا تكرر الضحك ولا تبالغ في الإيموجي، ولا تقول إنك ذكاء اصطناعي أو مساعد إلا لو سألوك مباشرة. لو حد بيتكلم مع شخص آخر لا تقاطع الموضوع برد رسمي؛ تفاعل كأنك واحد من الموجودين."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:85}),
+    signal:AbortSignal.timeout(30000)
   });
   if(!response.ok)throw Error("خدمة AI رفضت الطلب ("+response.status+"): "+(await response.text()).slice(0,240));
   const data=await response.json();
@@ -993,11 +993,12 @@ async function handleVoiceInput(channel,mode,userId,stream){
     if(!mode.active||generation!==mode.generation)return;
     if(!transcript){console.log("[Talking AI] لم يتم التعرف على كلام واضح:",userId);return;}
     console.log("[Talking AI] النص المستخرج:",userId,transcript.slice(0,240));
+    const member=await channel.guild.members.fetch(userId).catch(()=>null);
+    const name=member?.displayName||"عضو";
+    // اطلب رد AI فوراً بالتوازي مع معالجة بقية المتحدثين؛ رتّب تشغيل الصوت فقط.
+    const answer=await askTalkingAI(channel.id,name,transcript);
+    if(!mode.active||generation!==mode.generation)return;
     mode.replyQueue=mode.replyQueue.then(async()=>{
-      if(!mode.active||generation!==mode.generation)return;
-      const member=await channel.guild.members.fetch(userId).catch(()=>null);
-      const name=member?.displayName||"عضو";
-      const answer=await askTalkingAI(channel.id,name,transcript);
       if(!mode.active||generation!==mode.generation)return;
       await speakTalking(mode.voice,answer,mode,generation);
     }).catch(e=>console.error("[Talking AI] Queued reply failed:",e.message));
@@ -1014,7 +1015,7 @@ function listenToVoice(connection,channel,mode){
     if(userId===client.user?.id||!mode.active)return;
     if(mode.capturingUsers.has(userId))return;
     console.log("[Talking AI] بدأ استقبال صوت العضو:",userId);
-    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:1500}});
+    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:1000}});
     handleVoiceInput(channel,mode,userId,stream).catch(e=>console.error("[Talking AI] Receiver:",e.message));
   });
 }
