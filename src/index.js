@@ -1008,7 +1008,7 @@ function listenToVoice(connection,channel,mode){
     // كلام عضو جديد يوقف الرد الصوتي الحالي.
     const turnId=interruptTalkingSpeech(mode);
     console.log("[Talking AI] بدأ استقبال صوت العضو:",userId);
-    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:1200}));
+    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:1200}}));
     handleVoiceInput(channel,mode,userId,stream,turnId).catch(e=>console.error("[Talking AI] Receiver:",e.message));
   });
 }
