@@ -1,0 +1,39 @@
+name: Register Discord Slash Commands
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/deploy-commands.js"
+      - ".github/workflows/register-commands.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eto-register-commands
+  cancel-in-progress: true
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.17.0"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Register slash commands
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          GUILD_ID: ${{ secrets.GUILD_ID }}
+        run: npm run register
