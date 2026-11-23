@@ -10,7 +10,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: eto-discord-bot
+  group: eto-discord-bot-final
   cancel-in-progress: true
 
 jobs:
@@ -24,6 +24,8 @@ jobs:
         run: |
           gh run cancel 45228194519 --repo "${{ github.repository }}" || true
           gh run cancel 45233726970 --repo "${{ github.repository }}" || true
+          gh run cancel 45237003753 --repo "${{ github.repository }}" || true
+          gh run cancel 45237161537 --repo "${{ github.repository }}" || true
 
       - name: Checkout
         uses: actions/checkout@v4
