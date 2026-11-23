@@ -228,7 +228,7 @@ async function startMusic(s,input){
     let target=raw,title=raw;
     if(/^(www\.|youtube\.com\/|youtu\.be\/|m\.youtube\.com\/|music\.youtube\.com\/)/i.test(target))target="https://"+target;
     if(/open\.spotify\.com\/track\//i.test(target)){
-      const meta=await fetch("https://open.spotify.com/oembed?url="+encodeURIComponent(target),{signal:AbortSignal.timeout(20000)});
+      let meta;try{meta=await fetch("https://open.spotify.com/oembed?url="+encodeURIComponent(target),{signal:AbortSignal.timeout(45000)});}catch(e){throw Error("تعذر الاتصال ببيانات Spotify؛ جرّب رابط YouTube أو اسم الأغنية. "+(e.name==="AbortError"?"انتهت مهلة الاتصال.":e.message));}
       if(!meta.ok)throw Error("تعذر قراءة بيانات Spotify.");
       const data=await meta.json();
       title=(data.author_name?data.author_name+" - ":"")+(data.title||"");
@@ -748,7 +748,7 @@ async function askTalkingAI(channelId,user,content){
     body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"أنت مساعد مختصر. أجب بلغة المستخدم وبشكل طبيعي."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:450}),
     signal:AbortSignal.timeout(60000)
   });
-  if(!response.ok)throw Error("AI API "+response.status+": "+(await response.text()).slice(0,150));
+  if(!response.ok)throw Error("خدمة AI رفضت الطلب ("+response.status+"): "+(await response.text()).slice(0,240));
   const data=await response.json(),answer=data.choices?.[0]?.message?.content;
   if(!answer)throw Error("لم ترجع خدمة AI إجابة.");
   const clean=String(answer).slice(0,1800);
@@ -762,7 +762,7 @@ async function speakTalking(session,text){
     body:JSON.stringify({model:TTS_MODEL,voice:TTS_VOICE,input:text.slice(0,2500),response_format:"mp3"}),
     signal:AbortSignal.timeout(90000)
   });
-  if(!response.ok)throw Error("TTS API "+response.status);
+  if(!response.ok)throw Error("خدمة الصوت رفضت الطلب ("+response.status+"): "+(await response.text()).slice(0,180));
   const audio=Buffer.from(await response.arrayBuffer());
   const ff=spawn(ffmpegPath,["-hide_banner","-loglevel","error","-i","pipe:0","-f","s16le","-ar","48000","-ac","2","pipe:1"],{stdio:["pipe","pipe","pipe"]});
   session.ffmpeg=ff;ff.stdin.end(audio);
@@ -795,8 +795,8 @@ client.on(Events.InteractionCreate,async i=>{
     if(i.commandName==="talking"){
       const group=i.options.getSubcommandGroup(false),sub=i.options.getSubcommand(),channel=i.channel;
       if(sub==="stop")return i.reply({content:stopTalking(channel.id)?"تم إيقاف المساعد.":"المساعد غير مفعّل هنا.",flags:MessageFlags.Ephemeral});
-      if(!AI_API_KEY)return i.reply({content:"أضف AI_API_KEY في Secrets.",flags:MessageFlags.Ephemeral});
-      if(sub==="voice-ai"){
+      if(!AI_API_KEY)return i.reply({content:"مفتاح الذكاء الاصطناعي غير مضبوط. أضف AI_API_KEY أو OPENAI_API_KEY في Secrets.",flags:MessageFlags.Ephemeral});
+      if(group==="voice"&&sub==="ai"){
         if(!TTS_API_KEY)return i.reply({content:"أضف TTS_API_KEY لتفعيل الصوت.",flags:MessageFlags.Ephemeral});
         const voice=i.member?.voice?.channel;if(!voice)return i.reply({content:"ادخل روم صوتي أولاً.",flags:MessageFlags.Ephemeral});
         await i.deferReply({flags:MessageFlags.Ephemeral});
@@ -806,6 +806,12 @@ client.on(Events.InteractionCreate,async i=>{
       }
       talkingModes.set(channel.id,{voice:null,queue:Promise.resolve()});conversations.set(channel.id,[]);
       return i.reply({content:"تم تفعيل AI في هذه القناة.",flags:MessageFlags.Ephemeral});
+    }
+    if(i.commandName==="screen"){
+      const link=i.options.getString("link",true).trim();
+      let parsed;try{parsed=new URL(link)}catch{return i.reply({content:"الرابط غير صالح.",flags:MessageFlags.Ephemeral});}
+      if(!["http:","https:"].includes(parsed.protocol))return i.reply({content:"استخدم رابط فيديو يبدأ بـ https:// أو http://",flags:MessageFlags.Ephemeral});
+      return i.reply({content:"🎬 **الفيديو المطلوب:**\\n"+link,allowedMentions:{parse:[]}});
     }
     if(i.commandName==="music"){
       const sub=i.options.getSubcommand();
