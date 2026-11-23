@@ -842,7 +842,8 @@ async function codsInspectServer(guild){
   }
   return {server:guild.name,channels:channels.slice(0,100),categories:guild.channels.cache.filter(c=>c.type===ChannelType.GuildCategory).map(c=>({id:c.id,name:c.name})),roles:guild.roles.cache.filter(r=>r.id!==guild.id).map(r=>({id:r.id,name:r.name,position:r.position,managed:r.managed,permissions:r.permissions.toArray().slice(0,12)})).slice(0,100)};
 }
-async function codsPrepareAction(guild,name,args){
+async function codsPrepareAction(guild,name,args,requesterId){
+  const requester=guild.members.cache.get(requesterId)||await guild.members.fetch(requesterId);
   if(name==="create_text_channel"){
     const channelName=String(args.name||"").trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06FF_-]/g,"-").replace(/-+/g,"-").slice(0,90);
     if(!channelName)throw Error("اسم الروم غير صالح.");
@@ -857,13 +858,13 @@ async function codsPrepareAction(guild,name,args){
   if(name==="rename_channel"){
     const channel=codsFindChannel(guild,args.channel_name);
     const newName=String(args.new_name||"").trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06FF_-]/g,"-").replace(/-+/g,"-").slice(0,90);
-    if(!channel.manageable||!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageChannels))throw Error("البوت لا يملك صلاحية تعديل هذا الروم.");
+    if(!requester.permissions.has(PermissionFlagsBits.ManageChannels)||!channel.manageable||!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageChannels))throw Error("تحتاج أنت والبوت صلاحية إدارة القنوات.");
     if(!newName)throw Error("الاسم الجديد غير صالح.");
     return {name,args:{channelId:channel.id,newName},preview:"تغيير اسم #"+channel.name+" إلى #"+newName};
   }
   if(name==="set_channel_topic"){
     const channel=codsFindChannel(guild,args.channel_name);
-    if(!channel.isTextBased()||!channel.manageable||!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageChannels))throw Error("لا أستطيع تعديل وصف هذا الروم.");
+    if(!requester.permissions.has(PermissionFlagsBits.ManageChannels)||!channel.isTextBased()||!channel.manageable||!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageChannels))throw Error("تحتاج أنت والبوت صلاحية إدارة القنوات.");
     return {name,args:{channelId:channel.id,topic:String(args.topic||"").slice(0,1024)},preview:"تغيير وصف #"+channel.name+" إلى:\n"+String(args.topic||"").slice(0,300)};
   }
   if(name==="create_role"){
@@ -871,13 +872,13 @@ async function codsPrepareAction(guild,name,args){
     if(!roleName)throw Error("اسم الرتبة غير صالح.");
     const color=String(args.color||"").trim();
     if(color&&!/^#?[0-9a-fA-F]{6}$/.test(color))throw Error("لون الرتبة يجب أن يكون HEX مثل #78BFFF.");
-    if(!guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles))throw Error("البوت يحتاج صلاحية Manage Roles.");
+    if(!requester.permissions.has(PermissionFlagsBits.ManageRoles)||!guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles))throw Error("تحتاج أنت والبوت صلاحية إدارة الرتب.");
     return {name,args:{name:roleName,color:color?(color.startsWith("#")?color:"#"+color):null},preview:"إنشاء رتبة **"+roleName+"** بدون صلاحيات إدارية"+(color?" بلون "+color:"")};
   }
   if(name==="delete_recent_messages"){
     const channel=codsFindChannel(guild,args.channel_name);
     const count=Math.max(1,Math.min(20,Number(args.count)||1));
-    if(!channel.isTextBased()||!channel.messages||!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageMessages|PermissionFlagsBits.ReadMessageHistory))throw Error("البوت يحتاج Manage Messages وRead Message History في هذا الروم.");
+    if(!requester.permissions.has(PermissionFlagsBits.ManageMessages)||!channel.isTextBased()||!channel.messages||!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageMessages|PermissionFlagsBits.ReadMessageHistory))throw Error("تحتاج أنت والبوت صلاحية إدارة الرسائل وقراءة سجل الروم.");
     const fetched=await channel.messages.fetch({limit:count});
     const messages=[...fetched.values()].sort((a,b)=>a.createdTimestamp-b.createdTimestamp);
     if(!messages.length)throw Error("الروم لا يحتوي رسائل يمكن عرضها.");
@@ -938,7 +939,7 @@ async function codsAsk(guild,userId,prompt){
         const result=await codsInspectServer(guild);
         messages.push({role:"tool",tool_call_id:call.id,content:JSON.stringify(result).slice(0,18000)});
       }else{
-        const action=await codsPrepareAction(guild,call.function.name,args);
+        const action=await codsPrepareAction(guild,call.function.name,args,userId);
         action.requesterId=userId;actions.push(action);
         messages.push({role:"tool",tool_call_id:call.id,content:JSON.stringify({prepared:true,preview:action.preview,confirmation_required:true})});
       }
@@ -1084,6 +1085,7 @@ client.on(Events.InteractionCreate,async i=>{
     if(i.commandName==="cods"){
       if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
       if(!AI_API_KEY)return i.reply({content:"مفتاح الذكاء الاصطناعي غير مضبوط.",flags:MessageFlags.Ephemeral});
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels)||!i.guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels))return i.reply({content:"تحتاج أنت والبوت صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
       await i.deferReply({flags:MessageFlags.Ephemeral});
       const oldId=cfg[i.guildId]?.cods?.channelId;
       let codsChannel=oldId?await i.guild.channels.fetch(oldId).catch(()=>null):null;
@@ -1094,6 +1096,7 @@ client.on(Events.InteractionCreate,async i=>{
           {id:i.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]}
         ],reason:"Create private Cods AI admin room"});
       }
+      await codsChannel.permissionOverwrites.edit(i.user.id,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true}).catch(()=>{});
       cfg[i.guildId]={...(cfg[i.guildId]||{}),cods:{channelId:codsChannel.id,ownerId:i.user.id}};
       save();
       await codsChannel.send({content:"**Cods AI جاهز.** اكتب طلبك هنا باللغة الطبيعية. أستطيع حالياً فحص هيكل السيرفر، إنشاء/إعادة تسمية الرومات، تعديل وصفها، إنشاء رتب عادية، ومعاينة حذف الرسائل قبل التأكيد.\n\nملاحظة: قد يرسل Cods أسماء القنوات ومواضيعها وعينات من آخر الرسائل إلى مزود الذكاء الاصطناعي لإجراء التحليل. لا ترسل كلمات مرور أو بيانات سرية هنا.",allowedMentions:{parse:[]}});
