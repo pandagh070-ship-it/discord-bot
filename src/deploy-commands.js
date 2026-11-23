@@ -117,8 +117,7 @@ const commands=[
     .setName("talking").setDescription("مساعد الذكاء الاصطناعي")
     .addSubcommand(s=>s.setName("ai").setDescription("تفعيل الردود الذكية في القناة"))
     .addSubcommand(s=>s.setName("stop").setDescription("إيقاف المساعد"))
-    .addSubcommandGroup(g=>g.setName("voice").setDescription("المساعد الصوتي")
-      .addSubcommand(s=>s.setName("ai").setDescription("دخول رومك الصوتي والرد بصوت AI"))),
+    .addSubcommand(s=>s.setName("voice-ai").setDescription("دخول رومك الصوتي والرد بصوت AI")),
 ].map(x=>x.toJSON());
 
 (async()=>{
