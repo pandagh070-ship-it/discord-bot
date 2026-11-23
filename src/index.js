@@ -984,6 +984,8 @@ async function handleVoiceInput(channel,mode,userId,stream){
       try{chunks.push(decoder.decode(packet));}catch{}
     }
     if(!mode.active||generation!==mode.generation)return;
+    // انتهى التقاط هذا المتحدث؛ اسمح له ببدء جملة جديدة أثناء معالجة الرد السابق.
+    mode.capturingUsers.delete(userId);
     const pcm=Buffer.concat(chunks);
     if(pcm.length<48000){console.log("[Talking AI] صوت قصير جداً:",userId,pcm.length);return;}
     console.log("[Talking AI] استقبل صوتاً:",userId,"bytes:",pcm.length);
