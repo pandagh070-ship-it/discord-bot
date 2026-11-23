@@ -796,7 +796,7 @@ async function askTalkingAI(channelId,user,content){
   const history=conversations.get(channelId)||[];
   const response=await fetch(AI_BASE_URL+"/chat/completions",{
     method:"POST",headers:{"Authorization":"Bearer "+AI_API_KEY,"Content-Type":"application/json"},
-    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"أنت مساعد مختصر. أجب بلغة المستخدم وبشكل طبيعي."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:450}),
+    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"أنت مساعد مصري بيتكلم بالعامية المصرية فقط، مش بالفصحى ولا باللهجات التانية. ردودك قصيرة جداً: جملة واحدة غالباً، من 2 إلى 8 كلمات، ومن غير مقدمات أو شرح طويل. خليك طبيعي وخفيف. لو السؤال محتاج تفاصيل، اذكر أهم نقطة باختصار شديد."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:110}),
     signal:AbortSignal.timeout(60000)
   });
   if(!response.ok)throw Error("خدمة AI رفضت الطلب ("+response.status+"): "+(await response.text()).slice(0,240));
@@ -804,7 +804,7 @@ async function askTalkingAI(channelId,user,content){
   const rawAnswer=data.choices?.[0]?.message?.content;
   const answer=Array.isArray(rawAnswer)?rawAnswer.map(part=>part.text||"").join("\\n"):rawAnswer;
   if(!answer)throw Error("لم ترجع خدمة AI إجابة. تحقق من AI_MODEL وAI_BASE_URL.");
-  const clean=String(answer).slice(0,1800);
+  const clean=String(answer).trim().slice(0,420);
   conversations.set(channelId,[...history,{role:"user",content:user+": "+content},{role:"assistant",content:clean}].slice(-12));
   return clean;
 }
@@ -1132,7 +1132,7 @@ client.on(Events.InteractionCreate,async i=>{
         await i.deferReply({flags:MessageFlags.Ephemeral});
         const connection=joinVoiceChannel({channelId:voice.id,guildId:i.guildId,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:false});
         monitorVoiceConnection(connection,"talking-ai");
-        try{await entersState(connection,VoiceConnectionStatus.Ready,35000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);const mode={voice:voiceSession,capturingUsers:new Set(),generation:0,active:true,replyQueue:Promise.resolve(),ttsChild:null};talkingModes.set(channel.id,mode);listenToVoice(connection,channel,mode);return i.editReply("تم تفعيل المحادثة الصوتية. تكلم في الفويس؛ الردود ستكون صوتية فقط، ويمكنك مقاطعتي بالكلام.");}
+        try{await entersState(connection,VoiceConnectionStatus.Ready,35000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);const mode={voice:voiceSession,capturingUsers:new Set(),generation:0,active:true,replyQueue:Promise.resolve(),ttsChild:null};talkingModes.set(channel.id,mode);listenToVoice(connection,channel,mode);return i.editReply("تم تفعيل المحادثة الصوتية بالمصري. هيرد باختصار، ومش هيوقف كلامه لو حد اتكلم.");}
         catch(e){try{connection.destroy()}catch{}throw e;}
       }
       talkingModes.set(channel.id,{voice:null,queue:Promise.resolve()});conversations.set(channel.id,[]);
