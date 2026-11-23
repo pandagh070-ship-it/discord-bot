@@ -30,9 +30,9 @@ jobs:
 
       - name: Register commands and start bot
         env:
-          DISCORD_TOKEN: \${{ secrets.DISCORD_TOKEN }}
-          CLIENT_ID: \${{ secrets.CLIENT_ID }}
-          GUILD_ID: \${{ secrets.GUILD_ID }}
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          GUILD_ID: ${{ secrets.GUILD_ID }}
         run: |
           npm run register
           npm start
