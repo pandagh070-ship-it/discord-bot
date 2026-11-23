@@ -16,8 +16,10 @@ const {
   AudioPlayerStatus,
   VoiceConnectionStatus,
   entersState,
-  NoSubscriberBehavior
+  NoSubscriberBehavior,
+  StreamType
 } = require("@discordjs/voice");
+const { spawn } = require("node:child_process");
 
 const ffmpegPath = require("ffmpeg-static");
 if (ffmpegPath) {
@@ -46,6 +48,18 @@ function displayName(filename) {
   return path.basename(filename, path.extname(filename));
 }
 
+function isAllowedAudioUrl(value) {
+  let url;
+  try { url = new URL(value); } catch { return false; }
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
+  if (/^(127\\.|10\\.|192\\.168\\.|169\\.254\\.)/.test(host)) return false;
+  const match = host.match(/^172\\.(\\d+)\\./);
+  if (match && Number(match[1]) >= 16 && Number(match[1]) <= 31) return false;
+  return true;
+}
+
 function stopSession(guildId) {
   const session = sessions.get(guildId);
   if (!session) return;
@@ -54,7 +68,7 @@ function stopSession(guildId) {
   sessions.delete(guildId);
 }
 
-async function playSong(interaction, filename) {
+async function playSong(interaction, filename, audioUrl) {
   const voiceChannel = interaction.member?.voice?.channel;
   if (!voiceChannel) {
     return interaction.reply({
@@ -84,14 +98,14 @@ async function playSong(interaction, filename) {
     const player = createAudioPlayer({
       behaviors: { noSubscriber: NoSubscriberBehavior.Pause }
     });
-    const resource = createAudioResource(filePath);
+    let resource;\n    let ffmpeg = null;\n    if (remote) {\n      ffmpeg = spawn(ffmpegPath, [\n        "-nostdin", "-hide_banner", "-loglevel", "error", "-re",\n        "-i", audioUrl, "-vn", "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"\n      ], { stdio: ["ignore", "pipe", "pipe"] });\n      ffmpeg.stderr.on("data", chunk => console.error("FFmpeg:", String(chunk).slice(0, 300)));\n      resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw });\n    } else {\n      resource = createAudioResource(filePath);\n    }
     const previous = sessions.get(interaction.guildId);
     if (previous) {
       previous.player.stop(true);
       try { previous.connection.destroy(); } catch {}
     }
 
-    const session = { connection, player, filename };
+    const session = { connection, player, filename, ffmpeg };
     sessions.set(interaction.guildId, session);
     connection.subscribe(player);
     player.play(resource);
@@ -112,7 +126,7 @@ async function playSong(interaction, filename) {
     });
 
     return interaction.reply({
-      content: "🎵 الآن تعمل: **" + displayName(filename) + "**",
+      content: "🎵 الآن تعمل: **" + (remote ? "رابط مباشر" : displayName(filename)) + "**",
       flags: MessageFlags.Ephemeral
     });
   } catch (error) {
@@ -127,9 +141,9 @@ const commands = [
     .setDescription("تشغيل أغنية من ملفات البوت")
     .addSubcommand(sub =>
       sub.setName("play")
-        .setDescription("اختيار أغنية محفوظة في ملفات البوت")
+        .setDescription("تشغيل أغنية من ملف أو رابط صوت مباشر")
         .addStringOption(option => {
-          option.setName("song").setDescription("الأغنية التي تريد تشغيلها").setRequired(true);
+          option.setName("song").setDescription("أغنية محفوظة في البوت (اختياري)").setRequired(false);
           const songs = listSongs().slice(0, 25);
           for (const song of songs) {
             option.addChoices({ name: displayName(song).slice(0, 100), value: song });
