@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Register only current commands and start bot
+      - name: Register commands and start bot
         env:
           DISCORD_TOKEN: \${{ secrets.DISCORD_TOKEN }}
           CLIENT_ID: \${{ secrets.CLIENT_ID }}
