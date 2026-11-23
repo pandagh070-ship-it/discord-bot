@@ -7,13 +7,14 @@
     "register": "node src/deploy-commands.js"
   },
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=24.17.0"
   },
   "dependencies": {
-    "@discordjs/voice": "^0.18.0",
+    "@discordjs/voice": "^0.19.2",
     "discord.js": "^14.22.1",
     "dotenv": "^16.6.1",
     "ffmpeg-static": "^5.2.0",
-    "opusscript": "^0.0.8"
+    "opusscript": "^0.0.8",
+    "@snazzah/davey": "^0.1.6"
   }
 }
