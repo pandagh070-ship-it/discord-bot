@@ -1,7 +1,7 @@
 require("dotenv").config();
 const {REST,Routes,SlashCommandBuilder,ChannelType}=require("discord.js");
 
-const commands=[
+const commands=[\n  new SlashCommandBuilder().setName("alive").setDescription("تشغيل وضع Live المستقل"),\n  new SlashCommandBuilder().setName("stoplive").setDescription("إيقاف وضع Live"),
   new SlashCommandBuilder()
     .setName("cods").setDescription("إنشاء غرفة إدارة السيرفر بالذكاء الاصطناعي"),
   new SlashCommandBuilder()
