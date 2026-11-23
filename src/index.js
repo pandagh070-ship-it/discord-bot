@@ -800,69 +800,102 @@ async function transcribeVoice(pcm){
   if(!r.ok)throw Error("فشل التعرف على الصوت ("+r.status+"): "+(await r.text()).slice(0,140));
   return String((await r.json()).text||"").trim();
 }
-async function handleVoiceInput(channel,mode,userId,stream){
+function interruptTalkingSpeech(mode){
+  mode.turnId=(mode.turnId||0)+1;
+  const voice=mode.voice;
+  if(voice){
+    if(mode.ttsChild&&!mode.ttsChild.killed)mode.ttsChild.kill("SIGKILL");
+    mode.ttsChild=null;
+    voice.player.stop(true);
+    if(voice.ffmpeg&&!voice.ffmpeg.killed)voice.ffmpeg.kill("SIGKILL");
+    voice.ffmpeg=null;
+  }
+  return mode.turnId;
+}
+async function handleVoiceInput(channel,mode,userId,stream,turnId){
   if(mode.processingUsers.has(userId)){stream.destroy();return;}
-  mode.processingUsers.add(userId);const decoder=new OpusScript(48000,2,OpusScript.Application.AUDIO),chunks=[];
+  mode.processingUsers.add(userId);
+  const decoder=new OpusScript(48000,2,OpusScript.Application.AUDIO),chunks=[];
   try{
-    for await(const packet of stream){try{chunks.push(decoder.decode(packet));}catch{}}
-    const pcm=Buffer.concat(chunks);if(pcm.length<48000)return;
-    const transcript=await transcribeVoice(pcm);if(!transcript)return;
+    for await(const packet of stream){
+      if(turnId!==mode.turnId)return;
+      try{chunks.push(decoder.decode(packet));}catch{}
+    }
+    if(turnId!==mode.turnId)return;
+    const pcm=Buffer.concat(chunks);
+    if(pcm.length<48000){console.log("[Talking AI] صوت قصير جداً:",pcm.length);return;}
+    console.log("[Talking AI] استقبل صوتاً:",userId,"bytes:",pcm.length);
+    const transcript=await transcribeVoice(pcm);
+    if(turnId!==mode.turnId||!transcript)return;
+    console.log("[Talking AI] تم التعرف على الكلام.");
     const member=await channel.guild.members.fetch(userId).catch(()=>null),name=member?.displayName||"عضو";
     const answer=await askTalkingAI(channel.id,name,transcript);
-    await channel.send({content:"**"+name+" (صوت):** "+transcript.slice(0,700)+"\n**إيتو:** "+answer,allowedMentions:{parse:[]}});
-    mode.queue=mode.queue.then(()=>speakTalking(mode.voice,answer)).catch(e=>channel.send("تعذر الرد الصوتي: "+String(e.message||e).slice(0,140)).catch(()=>{}));
-  }catch(e){console.error("Voice AI:",e.message);channel.send("تعذر فهم الصوت: "+String(e.message||e).slice(0,140)).catch(()=>{});}
-  finally{try{decoder.delete()}catch{}mode.processingUsers.delete(userId);}
+    if(turnId!==mode.turnId)return;
+    await speakTalking(mode.voice,answer,mode,turnId);
+  }catch(e){
+    if(turnId===mode.turnId)console.error("[Talking AI] Voice input failed:",e.message);
+  }finally{
+    try{decoder.delete()}catch{}
+    mode.processingUsers.delete(userId);
+  }
 }
 function listenToVoice(connection,channel,mode){
   connection.receiver.speaking.on("start",userId=>{
-    if(userId===client.user?.id||mode.processingUsers.has(userId))return;
-    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:900}});
-    handleVoiceInput(channel,mode,userId,stream).catch(e=>console.error("Voice receiver:",e.message));
+    if(userId===client.user?.id)return;
+    // أي كلام بشري يوقف صوت المساعد فوراً، حتى لو كان في منتصف الجملة.
+    const turnId=interruptTalkingSpeech(mode);
+    if(mode.processingUsers.has(userId))return;
+    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:650});
+    handleVoiceInput(channel,mode,userId,stream,turnId).catch(e=>console.error("[Talking AI] Receiver:",e.message));
   });
 }
-async function speakTalking(session,text){
+async function speakTalking(session,text,mode,turnId){
   const voice=process.env.TTS_VOICE||"ar-SA-HamedNeural";
   const tempDir=fs.mkdtempSync(path.join(require("node:os").tmpdir(),"eto-tts-"));
   const audioPath=path.join(tempDir,"reply.mp3");
   const script="import asyncio,sys,edge_tts; asyncio.run(edge_tts.Communicate(sys.argv[1],sys.argv[2]).save(sys.argv[3]))";
-  await new Promise((resolve,reject)=>{
-    const child=spawn("python",["-c",script,String(text).slice(0,1800),voice,audioPath],{stdio:["ignore","ignore","pipe"]});
-    let stderr="";
-    const timer=setTimeout(()=>{child.kill("SIGKILL");reject(Error("انتهت مهلة توليد الصوت."));},90000);
-    child.stderr.on("data",d=>{stderr+=d.toString();if(stderr.length>1200)stderr=stderr.slice(-1200);});
-    child.on("error",e=>{clearTimeout(timer);reject(Error("تعذر تشغيل Edge TTS: "+e.message));});
-    child.on("close",code=>{clearTimeout(timer);if(code===0)resolve();else reject(Error("فشل توليد الصوت: "+stderr.slice(-300)));});
-  });
   try{
+    await new Promise((resolve,reject)=>{
+      const child=spawn("python",["-c",script,String(text).slice(0,1800),voice,audioPath],{stdio:["ignore","ignore","pipe"]});
+      mode.ttsChild=child;
+      let stderr="",settled=false;
+      const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timer);if(mode.ttsChild===child)mode.ttsChild=null;error?reject(error):resolve();};
+      const timer=setTimeout(()=>{child.kill("SIGKILL");finish(Error("انتهت مهلة توليد الصوت."));},90000);
+      child.stderr.on("data",d=>{stderr+=d.toString();if(stderr.length>1200)stderr=stderr.slice(-1200);});
+      child.on("error",e=>finish(Error("تعذر تشغيل Edge TTS: "+e.message)));
+      child.on("close",code=>finish(code===0?null:Error("فشل توليد الصوت: "+stderr.slice(-300))));
+    });
+    if(turnId!==mode.turnId)return;
     const ff=spawn(ffmpegPath,["-nostdin","-hide_banner","-loglevel","error","-i",audioPath,"-f","s16le","-ar","48000","-ac","2","pipe:1"],{stdio:["ignore","pipe","pipe"]});
     session.ffmpeg=ff;
-    const playback=new Promise((resolve,reject)=>{
-      const idle=()=>{clean();resolve()},err=e=>{clean();reject(e)};
-      const clean=()=>{session.player.off(AudioPlayerStatus.Idle,idle);session.player.off("error",err);};
+    await new Promise((resolve,reject)=>{
+      let settled=false;
+      const finish=(error)=>{if(settled)return;settled=true;session.player.off(AudioPlayerStatus.Idle,idle);session.player.off("error",err);error?reject(error):resolve();};
+      const idle=()=>finish(),err=e=>finish(e);
       session.player.once(AudioPlayerStatus.Idle,idle);session.player.once("error",err);
+      if(turnId!==mode.turnId){finish();return;}
       session.player.play(createAudioResource(ff.stdout,{inputType:StreamType.Raw}));
     });
-    await playback;
     if(!ff.killed)ff.kill("SIGKILL");
-    session.ffmpeg=null;
+    if(session.ffmpeg===ff)session.ffmpeg=null;
   }finally{
+    if(mode.ttsChild&&!mode.ttsChild.killed&&turnId!==mode.turnId)mode.ttsChild.kill("SIGKILL");
     try{fs.rmSync(tempDir,{recursive:true,force:true});}catch{}
   }
 }
 function stopTalking(channelId){
   const mode=talkingModes.get(channelId);if(!mode)return false;
   talkingModes.delete(channelId);
-  if(mode.voice){mode.voice.player.stop(true);if(mode.voice.ffmpeg&&!mode.voice.ffmpeg.killed)mode.voice.ffmpeg.kill("SIGKILL");try{mode.voice.connection.destroy()}catch{}}
+  interruptTalkingSpeech(mode);
+  if(mode.voice){try{mode.voice.connection.destroy()}catch{}}
   conversations.delete(channelId);return true;
 }
 client.on(Events.MessageCreate,async message=>{
   if(!message.guild||message.author.bot||!message.content.trim())return;
-  const mode=talkingModes.get(message.channelId);if(!mode)return;
+  const mode=talkingModes.get(message.channelId);if(!mode||mode.voice)return;
   try{
     const answer=await askTalkingAI(message.channelId,message.member?.displayName||message.author.username,message.content);
     await message.reply({content:answer,allowedMentions:{repliedUser:false}});
-    if(mode.voice)mode.queue=(mode.queue||Promise.resolve()).then(()=>speakTalking(mode.voice,answer)).catch(e=>message.channel.send("تعذر إخراج الرد صوتياً: "+String(e.message||e).slice(0,150)).catch(()=>{}));
   }catch(e){await message.reply({content:"تعذر رد AI: "+String(e.message||e).slice(0,180),allowedMentions:{repliedUser:false}}).catch(()=>{});}
 });
 client.on(Events.InteractionCreate,async i=>{
@@ -877,7 +910,7 @@ client.on(Events.InteractionCreate,async i=>{
         await i.deferReply({flags:MessageFlags.Ephemeral});
         const connection=joinVoiceChannel({channelId:voice.id,guildId:i.guildId,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:false});
         monitorVoiceConnection(connection,"talking-ai");
-        try{await entersState(connection,VoiceConnectionStatus.Ready,35000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);const mode={voice:voiceSession,queue:Promise.resolve(),processingUsers:new Set()};talkingModes.set(channel.id,mode);listenToVoice(connection,channel,mode);return i.editReply("دخلت الروم. تكلم الآن؛ سأسمعك وأرد عليك صوتياً. يعتمد التعرف على الكلام على GROQ_API_KEY، والصوت يعمل عبر Edge TTS بدون مفتاح إضافي.");}
+        try{await entersState(connection,VoiceConnectionStatus.Ready,35000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);const mode={voice:voiceSession,processingUsers:new Set(),turnId:0,ttsChild:null};talkingModes.set(channel.id,mode);listenToVoice(connection,channel,mode);return i.editReply("تم تفعيل المحادثة الصوتية. تكلم في الفويس؛ الردود ستكون صوتية فقط، ويمكنك مقاطعتي بالكلام.");}
         catch(e){try{connection.destroy()}catch{}throw e;}
       }
       talkingModes.set(channel.id,{voice:null,queue:Promise.resolve()});conversations.set(channel.id,[]);
