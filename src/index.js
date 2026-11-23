@@ -214,15 +214,15 @@ async function startMusic(s,input){
     let raw=String(input||"").trim().replace(/^<|>$/g,"").trim();
     if(!raw)throw Error("اكتب اسم أغنية أو رابطاً.");
     let target=raw,title=raw;
-    if(/^(www\\.|youtube\\.com\\/|youtu\\.be\\/|m\\.youtube\\.com\\/|music\\.youtube\\.com\\/)/i.test(target))target="https://"+target;
-    if(/open\\.spotify\\.com\\/track\\//i.test(target)){
+    if(/^(www\.|youtube\.com\/|youtu\.be\/|m\.youtube\.com\/|music\.youtube\.com\/)/i.test(target))target="https://"+target;
+    if(/open\.spotify\.com\/track\//i.test(target)){
       const meta=await fetch("https://open.spotify.com/oembed?url="+encodeURIComponent(target),{signal:AbortSignal.timeout(20000)});
       if(!meta.ok)throw Error("تعذر قراءة بيانات Spotify.");
       const data=await meta.json();
       title=(data.author_name?data.author_name+" - ":"")+(data.title||"");
       if(!title.trim())throw Error("تعذر استخراج اسم الأغنية من Spotify.");
       target="ytsearch1:"+title;
-    }else if(!/^https?:\\/\\//i.test(target)){
+    }else if(!/^https?:\/\//i.test(target)){
       target="ytsearch1:"+target;
     }
     let output;
@@ -237,8 +237,8 @@ async function startMusic(s,input){
       if(/abort|timeout|timed out/i.test(detail))throw Error("انتهت مهلة استخراج الصوت. جرّب رابط YouTube آخر.");
       throw Error("فشل استخراج الصوت: "+detail.slice(0,160));
     }
-    const mediaUrl=String(output||"").trim().split(/\\r?\\n/)[0];
-    if(!/^https?:\\/\\//i.test(mediaUrl))throw Error("لم يتم استخراج رابط صوت صالح.");
+    const mediaUrl=String(output||"").trim().split(/\r?\n/)[0];
+    if(!/^https?:\/\//i.test(mediaUrl))throw Error("لم يتم استخراج رابط صوت صالح.");
     if(!s.connection||s.connection.state.status===VoiceConnectionStatus.Destroyed){
       s.connection=joinVoiceChannel({channelId:s.voiceChannelId,guildId:s.guild.id,adapterCreator:s.guild.voiceAdapterCreator,selfDeaf:true});
       s.connection.on("error",e=>console.error("Voice connection:",e.message));
