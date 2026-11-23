@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: eto-discord-bot
@@ -17,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
+      - name: Stop previous bot process
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel 45228194519 --repo "${{ github.repository }}" || true
+
       - name: Checkout
         uses: actions/checkout@v4
 
