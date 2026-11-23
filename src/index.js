@@ -5,12 +5,13 @@ const ffmpegPath=require("ffmpeg-static");
 const {
   Client,GatewayIntentBits,Events,PermissionFlagsBits,EmbedBuilder,MessageFlags,
   ActionRowBuilder,ButtonBuilder,ButtonStyle,ModalBuilder,TextInputBuilder,TextInputStyle,
-  AudioPlayerStatus,StringSelectMenuBuilder,StringSelectMenuOptionBuilder
+  StringSelectMenuBuilder,StringSelectMenuOptionBuilder
 }=require("discord.js");
 const {
   joinVoiceChannel,createAudioPlayer,createAudioResource,VoiceConnectionStatus,
-  entersState,NoSubscriberBehavior,StreamType
+  entersState,NoSubscriberBehavior,StreamType,AudioPlayerStatus,EndBehaviorType
 }=require("@discordjs/voice");
+const OpusScript=require("opusscript");
 
 if(!process.env.DISCORD_TOKEN)throw Error("DISCORD_TOKEN missing");
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
@@ -759,6 +760,37 @@ async function askTalkingAI(channelId,user,content){
   conversations.set(channelId,[...history,{role:"user",content:user+": "+content},{role:"assistant",content:clean}].slice(-12));
   return clean;
 }
+function pcmToWav(pcm){
+  const h=Buffer.alloc(44);h.write("RIFF",0);h.writeUInt32LE(36+pcm.length,4);h.write("WAVE",8);h.write("fmt ",12);h.writeUInt32LE(16,16);h.writeUInt16LE(1,20);h.writeUInt16LE(2,22);h.writeUInt32LE(48000,24);h.writeUInt32LE(192000,28);h.writeUInt16LE(4,32);h.writeUInt16LE(16,34);h.write("data",36);h.writeUInt32LE(pcm.length,40);return Buffer.concat([h,pcm]);
+}
+async function transcribeVoice(pcm){
+  const key=process.env.GROQ_API_KEY;if(!key)throw Error("GROQ_API_KEY غير مضبوط لتحويل الصوت إلى نص.");
+  const form=new FormData();form.append("file",new Blob([pcmToWav(pcm)],{type:"audio/wav"}),"voice.wav");form.append("model",process.env.STT_MODEL||"whisper-large-v3-turbo");form.append("response_format","json");
+  const r=await fetch("https://api.groq.com/openai/v1/audio/transcriptions",{method:"POST",headers:{Authorization:"Bearer "+key},body:form,signal:AbortSignal.timeout(60000)});
+  if(!r.ok)throw Error("فشل التعرف على الصوت ("+r.status+"): "+(await r.text()).slice(0,140));
+  return String((await r.json()).text||"").trim();
+}
+async function handleVoiceInput(channel,mode,userId,stream){
+  if(mode.processingUsers.has(userId)){stream.destroy();return;}
+  mode.processingUsers.add(userId);const decoder=new OpusScript(48000,2,OpusScript.Application.AUDIO),chunks=[];
+  try{
+    for await(const packet of stream){try{chunks.push(decoder.decode(packet));}catch{}}
+    const pcm=Buffer.concat(chunks);if(pcm.length<48000)return;
+    const transcript=await transcribeVoice(pcm);if(!transcript)return;
+    const member=await channel.guild.members.fetch(userId).catch(()=>null),name=member?.displayName||"عضو";
+    const answer=await askTalkingAI(channel.id,name,transcript);
+    await channel.send({content:"**"+name+" (صوت):** "+transcript.slice(0,700)+"\n**إيتو:** "+answer,allowedMentions:{parse:[]}});
+    mode.queue=mode.queue.then(()=>speakTalking(mode.voice,answer)).catch(e=>channel.send("تعذر الرد الصوتي: "+String(e.message||e).slice(0,140)).catch(()=>{}));
+  }catch(e){console.error("Voice AI:",e.message);channel.send("تعذر فهم الصوت: "+String(e.message||e).slice(0,140)).catch(()=>{});}
+  finally{try{decoder.delete()}catch{}mode.processingUsers.delete(userId);}
+}
+function listenToVoice(connection,channel,mode){
+  connection.receiver.speaking.on("start",userId=>{
+    if(userId===client.user?.id||mode.processingUsers.has(userId))return;
+    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:900}});
+    handleVoiceInput(channel,mode,userId,stream).catch(e=>console.error("Voice receiver:",e.message));
+  });
+}
 async function speakTalking(session,text){
   if(!TTS_API_KEY)throw Error("أضف TTS_API_KEY أو استخدم مزود AI يدعم تحويل النص لصوت.");
   const response=await fetch(TTS_BASE_URL+"/audio/speech",{
@@ -804,8 +836,8 @@ client.on(Events.InteractionCreate,async i=>{
         if(!TTS_API_KEY)return i.reply({content:"أضف TTS_API_KEY لتفعيل الصوت.",flags:MessageFlags.Ephemeral});
         const voice=i.member?.voice?.channel;if(!voice)return i.reply({content:"ادخل روم صوتي أولاً.",flags:MessageFlags.Ephemeral});
         await i.deferReply({flags:MessageFlags.Ephemeral});
-        const connection=joinVoiceChannel({channelId:voice.id,guildId:i.guildId,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:true});
-        try{await entersState(connection,VoiceConnectionStatus.Ready,25000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);talkingModes.set(channel.id,{voice:voiceSession,queue:Promise.resolve()});return i.editReply("دخلت الروم الصوتي. اكتب في هذه القناة النصية لأرد كتابةً وصوتاً.");}
+        const connection=joinVoiceChannel({channelId:voice.id,guildId:i.guildId,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:false});
+        try{await entersState(connection,VoiceConnectionStatus.Ready,25000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);const mode={voice:voiceSession,queue:Promise.resolve(),processingUsers:new Set()};talkingModes.set(channel.id,mode);listenToVoice(connection,channel,mode);return i.editReply("دخلت الروم. تكلم الآن؛ سأسمع كلامك وأرد صوتياً. يلزم GROQ_API_KEY وTTS_API_KEY.");}
         catch(e){try{connection.destroy()}catch{}throw e;}
       }
       talkingModes.set(channel.id,{voice:null,queue:Promise.resolve()});conversations.set(channel.id,[]);
