@@ -21,9 +21,10 @@ try{cfg=JSON.parse(fs.readFileSync(file,"utf8"))}catch{}
 const timers=new Map(),sessions=new Map(),presenceTimers=new Map();
 const songsDir=path.join(__dirname,"..","songs");
 const songExtensions=new Set([".mp3",".wav",".ogg",".flac",".m4a"]);
-const AI_API_KEY=process.env.AI_API_KEY||process.env.OPENAI_API_KEY||process.env.GROQ_API_KEY||process.env.DEEPSEEK_API_KEY||"";
+const AI_API_KEY=process.env.AI_API_KEY||process.env.AI_TOKEN||process.env.OPENAI_API_KEY||process.env.OPENROUTER_API_KEY||process.env.GROQ_API_KEY||process.env.DEEPSEEK_API_KEY||"";
 const trimTrailingSlash=value=>value.endsWith("/")?value.slice(0,-1):value;
-const AI_BASE_URL=trimTrailingSlash(process.env.AI_BASE_URL||"https://api.openai.com/v1");
+const defaultAIBase=process.env.OPENROUTER_API_KEY&&!process.env.AI_API_KEY&&!process.env.AI_BASE_URL?"https://openrouter.ai/api/v1":"https://api.openai.com/v1";
+const AI_BASE_URL=trimTrailingSlash(process.env.AI_BASE_URL||defaultAIBase);
 const AI_MODEL=process.env.AI_MODEL||"gpt-4o-mini";
 const TTS_API_KEY=process.env.TTS_API_KEY||AI_API_KEY;
 const TTS_BASE_URL=trimTrailingSlash(process.env.TTS_BASE_URL||"https://api.openai.com/v1");
@@ -749,8 +750,10 @@ async function askTalkingAI(channelId,user,content){
     signal:AbortSignal.timeout(60000)
   });
   if(!response.ok)throw Error("خدمة AI رفضت الطلب ("+response.status+"): "+(await response.text()).slice(0,240));
-  const data=await response.json(),answer=data.choices?.[0]?.message?.content;
-  if(!answer)throw Error("لم ترجع خدمة AI إجابة.");
+  const data=await response.json();
+  const rawAnswer=data.choices?.[0]?.message?.content;
+  const answer=Array.isArray(rawAnswer)?rawAnswer.map(part=>part.text||"").join("\\n"):rawAnswer;
+  if(!answer)throw Error("لم ترجع خدمة AI إجابة. تحقق من AI_MODEL وAI_BASE_URL.");
   const clean=String(answer).slice(0,1800);
   conversations.set(channelId,[...history,{role:"user",content:user+": "+content},{role:"assistant",content:clean}].slice(-12));
   return clean;
