@@ -243,7 +243,7 @@ async function startMusic(s,input){
         output=await runYtDlp(["--no-warnings","--no-playlist","--remote-components","ejs:github","-f","bestaudio/best","-g",target]);
       }catch(firstError){
         const firstDetail=String(firstError.message||firstError);
-        if(/protect our community|sign in|cookies|authentication|not a bot/i.test(firstDetail)&&/youtube\\.com|youtu\\.be|ytsearch/i.test(target)){
+        if(/protect our community|sign in|cookies|authentication|not a bot/i.test(firstDetail)&&/youtube\.com|youtu\\.be|ytsearch/i.test(target)){
           output=await runYtDlp(["--no-warnings","--no-playlist","--remote-components","ejs:github","--extractor-args","youtube:player_client=android","-f","bestaudio/best","-g",target]);
         }else throw firstError;
       }
