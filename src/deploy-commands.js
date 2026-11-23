@@ -19,7 +19,7 @@ const commands = [
     .setDescription("تشغيل الموسيقى")
     .addSubcommand(sub =>
       sub.setName("play")
-        .setDescription("تشغيل ملف محفوظ أو رابط صوت مباشر")
+        .setDescription("تشغيل أغنية من ملف أو YouTube أو Spotify")
         .addStringOption(option => {
           option.setName("song").setDescription("أغنية محفوظة في البوت").setRequired(false);
           for (const song of songs) {
@@ -29,7 +29,7 @@ const commands = [
         })
         .addStringOption(option =>
           option.setName("url")
-            .setDescription("رابط HTTPS مباشر لملف صوتي")
+            .setDescription("رابط أغنية YouTube أو Spotify")
             .setRequired(false)
         )
     )
