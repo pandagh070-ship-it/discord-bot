@@ -1,7 +1,6 @@
 require("dotenv").config();
 const fs=require("node:fs"),path=require("node:path");
 const {spawn}=require("node:child_process");
-const youtubedl=require("youtube-dl-exec");
 const ffmpegPath=require("ffmpeg-static");
 const {
   Client,GatewayIntentBits,Events,PermissionFlagsBits,EmbedBuilder,MessageFlags,
@@ -34,6 +33,19 @@ const talkingModes=new Map(),conversations=new Map();
 if(!ffmpegPath)throw Error("ffmpeg-static binary is unavailable");
 
 function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
+
+function runYtDlp(args){
+  return new Promise((resolve,reject)=>{
+    const child=spawn("yt-dlp",args,{stdio:["ignore","pipe","pipe"]});
+    let stdout="",stderr="",settled=false;
+    const timer=setTimeout(()=>{if(!settled){settled=true;child.kill("SIGKILL");reject(Error("انتهت مهلة استخراج الأغنية."));}},65000);
+    child.stdout.on("data",chunk=>{stdout+=chunk.toString();});
+    child.stderr.on("data",chunk=>{stderr+=chunk.toString();if(stderr.length>5000)stderr=stderr.slice(-5000);});
+    child.on("error",error=>{if(settled)return;settled=true;clearTimeout(timer);reject(Error("yt-dlp غير مثبت على الخادم: "+error.message));});
+    child.on("close",exitCode=>{if(settled)return;settled=true;clearTimeout(timer);if(exitCode===0)resolve(stdout.trim());else reject(Error(stderr.trim().slice(-350)||("yt-dlp exited "+exitCode)));});
+  });
+}
+
 
 async function loadChannelBackups(){
   const token=process.env.GITHUB_TOKEN,repoName=process.env.GITHUB_REPOSITORY||"pandagh070-ship-it/discord-bot";
@@ -227,11 +239,7 @@ async function startMusic(s,input){
     }
     let output;
     try{
-      output=await youtubedl(target,{
-        getUrl:true,format:"bestaudio/best",noPlaylist:true,quiet:true,noWarnings:true,
-        socketTimeout:30,retries:2,extractorRetries:2,
-        execOptions:{timeout:65000}
-      });
+      output=await runYtDlp(["--no-warnings","--no-playlist","--no-check-certificates","-f","bestaudio/best","-g",target]);
     }catch(e){
       const detail=String(e.message||e);
       if(/abort|timeout|timed out/i.test(detail))throw Error("انتهت مهلة استخراج الصوت. جرّب رابط YouTube آخر.");
