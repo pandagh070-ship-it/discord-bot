@@ -37,7 +37,7 @@ function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
 
 function runYtDlp(args){
   return new Promise((resolve,reject)=>{
-    const child=spawn("yt-dlp",args,{stdio:["ignore","pipe","pipe"]});
+    const child=spawn("python",["-m","yt_dlp",...args],{stdio:["ignore","pipe","pipe"]});
     let stdout="",stderr="",settled=false;
     const timer=setTimeout(()=>{if(!settled){settled=true;child.kill("SIGKILL");reject(Error("انتهت مهلة استخراج الأغنية."));}},65000);
     child.stdout.on("data",chunk=>{stdout+=chunk.toString();});
@@ -814,7 +814,7 @@ client.on(Events.InteractionCreate,async i=>{
       const link=i.options.getString("link",true).trim();
       let parsed;try{parsed=new URL(link)}catch{return i.reply({content:"الرابط غير صالح.",flags:MessageFlags.Ephemeral});}
       if(!["http:","https:"].includes(parsed.protocol))return i.reply({content:"استخدم رابط فيديو يبدأ بـ https:// أو http://",flags:MessageFlags.Ephemeral});
-      return i.reply({content:"🎬 **الفيديو المطلوب:**\\n"+link,allowedMentions:{parse:[]}});
+      return i.reply({content:"Discord لا يسمح لحسابات البوتات بمشاركة الشاشة أو بث صورة الفيديو داخل المكالمة. أقدر أخلي البوت يدخل الروم ويشغّل صوت الفيديو فقط، لكن عرض الصورة يحتاج مشاركة شاشة من حساب مستخدم.",flags:MessageFlags.Ephemeral});
     }
     if(i.commandName==="music"){
       const sub=i.options.getSubcommand();
