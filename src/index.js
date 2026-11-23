@@ -787,7 +787,7 @@ client.on(Events.InteractionCreate,async i=>{
       const group=i.options.getSubcommandGroup(false),sub=i.options.getSubcommand(),channel=i.channel;
       if(sub==="stop")return i.reply({content:stopTalking(channel.id)?"تم إيقاف المساعد.":"المساعد غير مفعّل هنا.",flags:MessageFlags.Ephemeral});
       if(!AI_API_KEY)return i.reply({content:"أضف AI_API_KEY في Secrets.",flags:MessageFlags.Ephemeral});
-      if(group==="voice"){
+      if(sub==="voice-ai"){
         if(!TTS_API_KEY)return i.reply({content:"أضف TTS_API_KEY لتفعيل الصوت.",flags:MessageFlags.Ephemeral});
         const voice=i.member?.voice?.channel;if(!voice)return i.reply({content:"ادخل روم صوتي أولاً.",flags:MessageFlags.Ephemeral});
         await i.deferReply({flags:MessageFlags.Ephemeral});
