@@ -986,8 +986,9 @@ async function handleVoiceInput(channel,mode,userId,stream,turnId){
     if(pcm.length<48000){console.log("[Talking AI] صوت قصير جداً:",pcm.length);return;}
     console.log("[Talking AI] استقبل صوتاً:",userId,"bytes:",pcm.length);
     const transcript=await transcribeVoice(pcm);
-    if(turnId!==mode.turnId||!transcript)return;
-    console.log("[Talking AI] تم التعرف على الكلام.");
+    if(turnId!==mode.turnId)return;
+    if(!transcript){console.log("[Talking AI] لم يتم التعرف على كلام واضح.");return;}
+    console.log("[Talking AI] النص المستخرج:",transcript.slice(0,240));
     const member=await channel.guild.members.fetch(userId).catch(()=>null),name=member?.displayName||"عضو";
     const answer=await askTalkingAI(channel.id,name,transcript);
     if(turnId!==mode.turnId)return;
@@ -1002,10 +1003,12 @@ async function handleVoiceInput(channel,mode,userId,stream,turnId){
 function listenToVoice(connection,channel,mode){
   connection.receiver.speaking.on("start",userId=>{
     if(userId===client.user?.id)return;
-    // أي كلام بشري يوقف صوت المساعد فوراً، حتى لو كان في منتصف الجملة.
-    const turnId=interruptTalkingSpeech(mode);
+    // تجاهل إشارات البدء المكررة من العضو نفسه؛ لا تُلغِ عملية تحويل صوته الجارية.
     if(mode.processingUsers.has(userId))return;
-    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:650}});
+    // كلام عضو جديد يوقف الرد الصوتي الحالي.
+    const turnId=interruptTalkingSpeech(mode);
+    console.log("[Talking AI] بدأ استقبال صوت العضو:",userId);
+    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:1200}));
     handleVoiceInput(channel,mode,userId,stream,turnId).catch(e=>console.error("[Talking AI] Receiver:",e.message));
   });
 }
@@ -1028,11 +1031,22 @@ async function speakTalking(session,text,mode,turnId){
     if(turnId!==mode.turnId)return;
     const ff=spawn(ffmpegPath,["-nostdin","-hide_banner","-loglevel","error","-i",audioPath,"-f","s16le","-ar","48000","-ac","2","pipe:1"],{stdio:["ignore","pipe","pipe"]});
     session.ffmpeg=ff;
+    let ffmpegError="";
+    ff.stderr.on("data",d=>{ffmpegError+=(d.toString());if(ffmpegError.length>1200)ffmpegError=ffmpegError.slice(-1200);});
+    ff.on("error",e=>console.error("[Talking AI] FFmpeg:",e.message));
+    console.log("[Talking AI] بدأ إرسال الرد الصوتي إلى Discord.");
     await new Promise((resolve,reject)=>{
-      let settled=false;
-      const finish=(error)=>{if(settled)return;settled=true;session.player.off(AudioPlayerStatus.Idle,idle);session.player.off("error",err);error?reject(error):resolve();};
-      const idle=()=>finish(),err=e=>finish(e);
-      session.player.once(AudioPlayerStatus.Idle,idle);session.player.once("error",err);
+      let settled=false,started=false;
+      const finish=(error)=>{if(settled)return;settled=true;clearTimeout(watchdog);session.player.off(AudioPlayerStatus.Playing,playing);session.player.off(AudioPlayerStatus.Idle,idle);session.player.off("error",err);error?reject(error):resolve();};
+      const playing=()=>{started=true;console.log("[Talking AI] Discord يشغّل الصوت الآن.");};
+      const idle=()=>finish(started?null:Error("انتهى الصوت قبل بدء التشغيل في Discord."));
+      const err=e=>finish(e);
+      const watchdog=setTimeout(()=>finish(Error("انتهت مهلة تشغيل الرد الصوتي.")),60000);
+      session.player.once(AudioPlayerStatus.Playing,playing);
+      session.player.once(AudioPlayerStatus.Idle,idle);
+      session.player.once("error",err);
+      ff.stdout.once("error",e=>finish(Error("تعذر قراءة صوت FFmpeg: "+e.message)));
+      ff.once("close",code=>{if(code!==0&&code!==null)console.error("[Talking AI] FFmpeg exit:",code,ffmpegError.slice(-500));});
       if(turnId!==mode.turnId){finish();return;}
       session.player.play(createAudioResource(ff.stdout,{inputType:StreamType.Raw}));
     });
