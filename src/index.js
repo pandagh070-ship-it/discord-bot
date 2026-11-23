@@ -435,14 +435,6 @@ client.on(Events.VoiceStateUpdate,async(oldState,newState)=>{
     save();
   }
 });
-  if(newState.id!==client.user?.id)return;
-  if(oldState.channelId&&!newState.channelId){
-    leaveAfk(newState.guild.id);
-  }else if(newState.channelId&&cfg[newState.guild.id]?.afkChannelId!==newState.channelId){
-    cfg[newState.guild.id]={...(cfg[newState.guild.id]||{}),afkChannelId:newState.channelId};
-    save();
-  }
-});
 
 client.on(Events.PresenceUpdate,(oldPresence,newPresence)=>{
   if(oldPresence?.status===newPresence.status)return;
