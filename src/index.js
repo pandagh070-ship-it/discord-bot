@@ -845,7 +845,7 @@ function listenToVoice(connection,channel,mode){
     // أي كلام بشري يوقف صوت المساعد فوراً، حتى لو كان في منتصف الجملة.
     const turnId=interruptTalkingSpeech(mode);
     if(mode.processingUsers.has(userId))return;
-    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:650});
+    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:650}});
     handleVoiceInput(channel,mode,userId,stream,turnId).catch(e=>console.error("[Talking AI] Receiver:",e.message));
   });
 }
