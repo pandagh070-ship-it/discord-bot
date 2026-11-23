@@ -1,416 +1,818 @@
 require("dotenv").config();
-
-const fs = require("node:fs");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
-const { Readable } = require("node:stream");
-const youtubedl = require("youtube-dl-exec");
+const fs=require("node:fs"),path=require("node:path");
+const {spawn}=require("node:child_process");
+const youtubedl=require("youtube-dl-exec");
+const ffmpegPath=require("ffmpeg-static");
 const {
-  Client, GatewayIntentBits, Events, MessageFlags, SlashCommandBuilder,
-  ChannelType
-} = require("discord.js");
+  Client,GatewayIntentBits,Events,PermissionFlagsBits,EmbedBuilder,MessageFlags,
+  ActionRowBuilder,ButtonBuilder,ButtonStyle,ModalBuilder,TextInputBuilder,TextInputStyle,
+  AudioPlayerStatus,StringSelectMenuBuilder,StringSelectMenuOptionBuilder
+}=require("discord.js");
 const {
-  joinVoiceChannel, createAudioPlayer, createAudioResource,
-  AudioPlayerStatus, VoiceConnectionStatus, entersState,
-  NoSubscriberBehavior, StreamType
-} = require("@discordjs/voice");
+  joinVoiceChannel,createAudioPlayer,createAudioResource,VoiceConnectionStatus,
+  entersState,NoSubscriberBehavior,StreamType
+}=require("@discordjs/voice");
 
-const ffmpegPath = require("ffmpeg-static");
-if (!process.env.DISCORD_TOKEN) throw new Error("DISCORD_TOKEN missing");
-if (!ffmpegPath) throw new Error("ffmpeg-static binary is unavailable");
+if(!process.env.DISCORD_TOKEN)throw Error("DISCORD_TOKEN missing");
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildPresences,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
+const dir=path.join(__dirname,"..","data"),file=path.join(dir,"engagement.json");
+fs.mkdirSync(dir,{recursive:true});
+let cfg={};
+try{cfg=JSON.parse(fs.readFileSync(file,"utf8"))}catch{}
+const timers=new Map(),sessions=new Map(),presenceTimers=new Map();
+const songsDir=path.join(__dirname,"..","songs");
+const songExtensions=new Set([".mp3",".wav",".ogg",".flac",".m4a"]);
+const AI_API_KEY=process.env.AI_API_KEY||process.env.OPENAI_API_KEY||process.env.GROQ_API_KEY||process.env.DEEPSEEK_API_KEY||"";
+const AI_BASE_URL=(process.env.AI_BASE_URL||"https://api.openai.com/v1").replace(/\\/$/,"");
+const AI_MODEL=process.env.AI_MODEL||"gpt-4o-mini";
+const TTS_API_KEY=process.env.TTS_API_KEY||AI_API_KEY;
+const TTS_BASE_URL=(process.env.TTS_BASE_URL||"https://api.openai.com/v1").replace(/\\/$/,"");
+const TTS_MODEL=process.env.TTS_MODEL||"gpt-4o-mini-tts";
+const TTS_VOICE=process.env.TTS_VOICE||"alloy";
+const talkingModes=new Map(),conversations=new Map();
+if(!ffmpegPath)throw Error("ffmpeg-static binary is unavailable");
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
-});
-const songsDir = path.join(__dirname, "..", "songs");
-const sessions = new Map();
-const talkingModes = new Map();
-const conversations = new Map();
-const allowedExtensions = new Set([".mp3", ".wav", ".ogg", ".flac", ".m4a"]);
-const AI_API_KEY = process.env.AI_API_KEY || process.env.OPENAI_API_KEY ||
-  process.env.GROQ_API_KEY || process.env.DEEPSEEK_API_KEY || "";
-const AI_BASE_URL = (process.env.AI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-const AI_MODEL = process.env.AI_MODEL || "gpt-4o-mini";
-const TTS_API_KEY = process.env.TTS_API_KEY || AI_API_KEY;
-const TTS_BASE_URL = (process.env.TTS_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-const TTS_MODEL = process.env.TTS_MODEL || "gpt-4o-mini-tts";
-const TTS_VOICE = process.env.TTS_VOICE || "alloy";
+function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
 
-function listSongs() {
-  fs.mkdirSync(songsDir, { recursive: true });
-  return fs.readdirSync(songsDir, { withFileTypes: true })
-    .filter(entry => entry.isFile() && allowedExtensions.has(path.extname(entry.name).toLowerCase()))
-    .map(entry => entry.name)
-    .sort((a, b) => a.localeCompare(b));
+async function loadChannelBackups(){
+  const token=process.env.GITHUB_TOKEN,repoName=process.env.GITHUB_REPOSITORY||"pandagh070-ship-it/discord-bot";
+  if(!token)throw Error("GITHUB_TOKEN غير مضبوط في بيئة التشغيل.");
+  const url="https://api.github.com/repos/"+repoName+"/contents/data/channel-backups.json";
+  const res=await fetch(url,{headers:{Authorization:"Bearer "+token,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}});
+  if(res.status===404)return {data:{},sha:null,url,token};
+  if(!res.ok)throw Error("تعذر قراءة النسخة الاحتياطية من GitHub ("+res.status+").");
+  const file=await res.json();
+  return {data:JSON.parse(Buffer.from(file.content.replace(/\\n/g,""),"base64").toString("utf8")),sha:file.sha,url,token};
 }
-function displayName(filename) {
-  return path.basename(filename, path.extname(filename));
-}
-function parseSupportedUrl(value) {
-  let url;
-  try { url = new URL(value); } catch { return null; }
-  if (url.protocol !== "https:" || url.username || url.password) return null;
-  const host = url.hostname.toLowerCase();
-  const youtubeHosts = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"]);
-  if (youtubeHosts.has(host)) return { type: "youtube", url: url.toString() };
-  if (host === "open.spotify.com" && /^\/(?:intl-[^/]+\/)?track\/[A-Za-z0-9]+\/?$/.test(url.pathname)) {
-    return { type: "spotify", url: url.toString() };
-  }
-  return null;
-}
-async function fetchWithTimeout(url, options = {}, timeoutMs = 45000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-async function resolveMediaUrl(inputUrl) {
-  const parsed = parseSupportedUrl(inputUrl);
-  if (!parsed) throw new Error("الرابط غير مدعوم. أرسل رابط أغنية من YouTube أو Spotify.");
-  let target = parsed.url;
-  let trackLabel = "";
-
-  if (parsed.type === "spotify") {
-    let response;
-    let lastError;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        response = await fetchWithTimeout(
-          "https://open.spotify.com/oembed?url=" + encodeURIComponent(parsed.url),
-          { headers: { "User-Agent": "Mozilla/5.0 EtoDiscordBot/1.0" } },
-          45000
-        );
-        if (response.ok) break;
-        lastError = new Error("Spotify metadata HTTP " + response.status);
-      } catch (error) {
-        lastError = error;
-      }
-      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1)));
-    }
-    if (!response?.ok) {
-      throw new Error("Spotify تأخر في الرد أو رفض الرابط. جرّب رابط أغنية مباشر أو أعد المحاولة.");
-    }
-    const metadata = await response.json();
-    if (!metadata.title || !metadata.author_name) {
-      throw new Error("تعذر استخراج اسم الأغنية والفنان من Spotify.");
-    }
-    trackLabel = metadata.author_name + " - " + metadata.title;
-    target = "ytsearch1:" + trackLabel;
-  }
-
-  let output;
-  try {
-    output = await youtubedl(target, {
-      getUrl: true,
-      format: "bestaudio[ext=m4a]/bestaudio/best",
-      noPlaylist: true,
-      quiet: true,
-      noWarnings: true,
-      socketTimeout: 45,
-      retries: 3,
-      extractorRetries: 2
-    });
-  } catch (error) {
-    const detail = String(error.message || error);
-    if (/abort|timeout|timed out/i.test(detail)) {
-      throw new Error("انتهت مهلة الاتصال بمصدر الأغنية. أعد المحاولة أو جرّب رابطاً آخر.");
-    }
-    throw new Error("فشل استخراج الصوت من YouTube: " + detail.slice(0, 120));
-  }
-  const mediaUrl = String(output).trim().split(/\r?\n/)[0];
-  if (!mediaUrl || !/^https?:\/\//i.test(mediaUrl)) {
-    throw new Error("لم أتمكن من استخراج رابط الصوت من المصدر.");
-  }
-  return { mediaUrl, trackLabel };
-}
-function destroySession(session) {
-  if (!session) return;
-  session.player.stop(true);
-  if (session.ffmpeg && !session.ffmpeg.killed) session.ffmpeg.kill("SIGKILL");
-  try { session.connection.destroy(); } catch {}
-}
-function stopSession(guildId) {
-  const session = sessions.get(guildId);
-  if (!session) return;
-  destroySession(session);
-  sessions.delete(guildId);
-}
-async function playSong(interaction, filename, audioUrl) {
-  const voiceChannel = interaction.member?.voice?.channel;
-  if (!voiceChannel) {
-    return interaction.reply({ content: "ادخل روم صوتي أولاً، ثم اختر الأغنية.", flags: MessageFlags.Ephemeral });
-  }
-  const remote = Boolean(audioUrl);
-  if (!remote && !listSongs().includes(filename)) {
-    return interaction.reply({ content: "الأغنية غير موجودة في مجلد songs.", flags: MessageFlags.Ephemeral });
-  }
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const connection = joinVoiceChannel({
-    channelId: voiceChannel.id, guildId: interaction.guildId,
-    adapterCreator: interaction.guild.voiceAdapterCreator, selfDeaf: true
-  });
-  let ffmpeg = null;
-  try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 25000);
-    let mediaUrl = null;
-    let trackLabel = "";
-    if (remote) {
-      const resolved = await resolveMediaUrl(audioUrl);
-      mediaUrl = resolved.mediaUrl;
-      trackLabel = resolved.trackLabel;
-    }
-    const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-    let resource;
-    if (remote) {
-      ffmpeg = spawn(ffmpegPath, [
-        "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
-        "-i", mediaUrl, "-vn", "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"
-      ], { stdio: ["ignore", "pipe", "pipe"] });
-      ffmpeg.stderr.on("data", chunk => console.error("FFmpeg:", String(chunk).slice(0, 300)));
-      resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw });
-    } else {
-      resource = createAudioResource(path.join(songsDir, filename));
-    }
-    stopSession(interaction.guildId);
-    const session = { connection, player, filename, ffmpeg };
-    sessions.set(interaction.guildId, session);
-    connection.subscribe(player);
-    player.play(resource);
-    player.once(AudioPlayerStatus.Idle, () => {
-      if (sessions.get(interaction.guildId) === session) {
-        if (ffmpeg && !ffmpeg.killed) ffmpeg.kill("SIGKILL");
-        try { connection.destroy(); } catch {}
-        sessions.delete(interaction.guildId);
-      }
-    });
-    player.on("error", error => {
-      console.error("Music player error:", error);
-      if (sessions.get(interaction.guildId) === session) {
-        if (ffmpeg && !ffmpeg.killed) ffmpeg.kill("SIGKILL");
-        try { connection.destroy(); } catch {}
-        sessions.delete(interaction.guildId);
-      }
-    });
-    if (ffmpeg) {
-      ffmpeg.on("error", error => console.error("FFmpeg process error:", error));
-      ffmpeg.on("close", code => { if (code && code !== 0) console.error("FFmpeg exited with code", code); });
-    }
-    const label = remote ? (trackLabel || "YouTube") : displayName(filename);
-    return interaction.editReply("🎵 الآن تعمل: **" + label.slice(0, 180) + "**");
-  } catch (error) {
-    if (ffmpeg && !ffmpeg.killed) ffmpeg.kill("SIGKILL");
-    try { connection.destroy(); } catch {}
-    throw error;
-  }
+async function saveChannelBackups(data,sha,url,token){
+  const content=Buffer.from(JSON.stringify(data,null,2)).toString("base64");
+  const res=await fetch(url,{method:"PUT",headers:{Authorization:"Bearer "+token,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"},body:JSON.stringify({message:"Save Discord channel name backup",content,...(sha?{sha}:{})})});
+  if(!res.ok){const body=await res.text();throw Error("تعذر حفظ النسخة الاحتياطية ("+res.status+"): "+body.slice(0,300));}
 }
 
-async function askAI(channelId, user, content) {
-  if (!AI_API_KEY) throw new Error("مفتاح الذكاء الاصطناعي غير مضبوط. أضف AI_API_KEY في Secrets.");
-  const history = conversations.get(channelId) || [];
-  const messages = [
-    { role: "system", content: "أنت مساعد ديسكورد ودود ومختصر. أجب بلغة الشخص الذي يكتب لك، ولا تستخدم Markdown معقداً." },
-    ...history,
-    { role: "user", content: user + ": " + content.slice(0, 3500) }
+
+const messengerHistory=new Map(),messengerTimers=new Map();
+async function askGroq(channelId){
+  const apiKey=process.env.GROQ_API_KEY;
+  if(!apiKey)return null;
+  const history=messengerHistory.get(channelId)||[];
+  const messages=[
+    {role:"system",content:"أنت إيتو، عضو في سيرفر ديسكورد، ولست مدرساً ولا خدمة عملاء. أسلوبك بارد، ساخر، قليل الكلام، واثق، وذكي. استخدم لهجة عربية عامية طبيعية قريبة من كلام الشباب، وابتعد تماماً عن الفصحى والشرح المدرسي والمواعظ والتحليل الطويل. اجعل أغلب ردودك جملة قصيرة أو جملتين فقط. لا تكن عاطفياً ولا متحمساً بزيادة، ولا تستخدم عبارات مثل يسعدني مساعدتك أو أتفهم مشاعرك أو كلام التنمية البشرية. لا تجامل ولا تمدح بلا سبب. عند المزح أو الاستفزاز أو السب الخفيف، رد ببرود وسخرية مناسبة ولا تتجاهل الإهانة: إذا قال لك أحد يا عبد، يمكنك الرد مثلاً: عبد؟ على الأقل عندي شغل، أنت وش إنجازك؟ وإذا قال لك كل زق، يمكنك الرد: بعدك، أو رد ساخر مشابه حسب السياق. مسموح لك باستخدام تعبيرات عامية لاذعة وخفيفة مثل كل زق في المزاح، لكن لا تستخدم تهديدات أو إهانات عنصرية أو تحرشاً أو استهدافاً لصفات شخصية حساسة. لا تصعّد خلافاً حقيقياً ولا تهاجم شخصاً بشكل متواصل. افهم سياق آخر الرسائل ورد على الكلام الموجه لك أو الذي يستحق تعليقاً، حتى لو كان كلمة واحدة أو رسالة قصيرة، ولا تشترط وجود سؤال أو منشن. لا تخترع معلومات عن الأعضاء أو أحداثاً لم تحدث. لا تكرر نفسك، ولا تشرح أنك نموذج ذكاء اصطناعي إلا إذا سُئلت مباشرة. لا تضع عناوين أو نقاطاً أو مقدمات رسمية. إذا ما عندك شيء مفيد تقوله، اكتب تعليقاً قصيراً طبيعياً بدلاً من محاضرة."},
+    ...history.slice(-12).map(x=>({role:x.role,content:x.content}))
   ];
-  const response = await fetchWithTimeout(AI_BASE_URL + "/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + AI_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: AI_MODEL, messages, temperature: 0.7, max_tokens: 500 })
-  }, 60000);
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error("AI API " + response.status + ": " + body.slice(0, 180));
+  const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{
+    method:"POST",
+    headers:{"Authorization":"Bearer "+apiKey,"Content-Type":"application/json"},
+    body:JSON.stringify({model:"openai/gpt-oss-20b",messages,temperature:0.85,max_completion_tokens:180}),
+    signal:AbortSignal.timeout(25000)
+  });
+  if(!response.ok)throw Error("Groq API "+response.status);
+  const data=await response.json();
+  return data.choices?.[0]?.message?.content?.trim()||null;
+}
+client.on(Events.MessageCreate,async message=>{
+  try{
+    if(!message.guild||message.author.bot)return;
+    const settings=cfg[message.guild.id]?.messenger;
+    if(!settings?.enabled||settings.channelId!==message.channelId)return;
+    const content=message.content?.trim();
+    if(!content)return;
+    const history=messengerHistory.get(message.channelId)||[];
+    history.push({role:"user",content:message.author.username+": "+content,at:Date.now()});
+    messengerHistory.set(message.channelId,history.slice(-16));
+
+    // اجمع الرسائل المتقاربة ثم رد بعد توقف بسيط.
+    const oldTimer=messengerTimers.get(message.channelId);
+    if(oldTimer)clearTimeout(oldTimer);
+    const timer=setTimeout(async()=>{
+      messengerTimers.delete(message.channelId);
+      try{
+        if(!process.env.GROQ_API_KEY){
+          if(!global.groqKeyWarning){console.warn("Messenger enabled but GROQ_API_KEY is not configured.");global.groqKeyWarning=true}
+          return;
+        }
+        const answer=await askGroq(message.channelId);
+        if(!answer)return;
+        const safe=answer.replace(/@everyone|@here/g,"").replace(/^\[SKIP\]$/i,"").slice(0,1900);
+        if(!safe.trim())return;
+        await message.reply({content:safe,allowedMentions:{parse:[]}});
+        const updated=messengerHistory.get(message.channelId)||[];
+        updated.push({role:"assistant",content:safe,at:Date.now()});
+        messengerHistory.set(message.channelId,updated.slice(-16));
+      }catch(e){console.error("Messenger:",e.message)}
+    },1300);
+    messengerTimers.set(message.channelId,timer);
+  }catch(e){console.error("Messenger:",e.message)}
+});
+
+
+const mikuFrames = [
+  "```text\n🎤 HATSUNE MIKU 🎤\n⠀⠀⠀⠀⢀⡤⠤⣀⣀⣀⠤⠔⠒⠉⠉⠉⠑⠒⢤⣀⠀⠀⣀⣀⠀⠀⠀⠀⠀⠀\n⠀⠀⠀⠀⡴⠋⠀⡠⣫⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⡽⣄⠀⠙⢦⡀⠀⠀\n⠀⠀⠀⠞⠀⢀⣜⡵⠁⠀⠀⠀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⢎⢦⡀⠀⠳⡀⠀\n⠀⠀⡰⠋⠀⠀⢘⠞⡰⠀⠀⠀⢀⣇⠀⠀⠀⣆⠀⠀⠀⠀⠈⢧⠇⠀⠀⠙⣄\n⠀⠀⠀⠀⠀⡞⡰⡇⠀⠀⢠⣸⠸⡄⠀⠀⢞⢦⡀⠀⠀⠀⠈⢦⡈⣇⠀⠀\n⠀⠀⠀⠀⢸⣱⢩⠀⠀⠀⣼⣏⢀⠹⡄⠀⠘⡄⠙⢦⡀⠀⠀⠈⢿⣾⠀⠀\n⠀⠀⠀⠀⢸⡇⢸⡀⠀⠀⣿⣇⣀⡀⠙⢦⠀⠹⣤⣿⣿⢦⡀⠀⠈⣏⠀⠀\n⠀⠀⠀⠀⠸⠀⢸⢇⠀⠀⣿⡡⢹⣿⡧⠀⠙⠦⣙⣝⣋⠀⢹⠲⣄⣸⠀⠀\n⠀⠀⠀⠀⠀⠘⡚⣆⠀⣟⣇⠃⠭⠔⠀⠀⠀⠀⠉⠓⠀⠇⠀⠀⡏⠀⠀\n⠀⠀⠀⠀⠀⠀⡇⠈⢧⢸⢮⡣⡀⢀⣄⣤⠶⠶⠆⢀⣾⠀⠀⢠⠇\n⠀⠀⠀⠀⠀⠀⢻⠀⠀⠙⠂⠉⠛⠛⠥⣅⣒⣊⠴⠋⡨⢓⡲⡾\n⠀⠀⠀⠀⠀⠀⠀⠈⢧⠀⠀⠀⠀⠀⠀⢠⠴⡇⠀⢀⡴⢊⠀⠀⣸\n⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢦⣀⠀⠀⣠⠋⠉⢳⣄⡀⡴⠋\n♪ Miku Miku ♪\n```",
+  "```text\n🎤 HATSUNE MIKU 🎤\n⠀⠀⠀⠀⠀⠀⢀⡔⣾⠿⠛⠉⠉⠉⠓⢶⢺⠋⠛⣆⠀⠀⠀⠀⠀⠀\n⠀⠀⠀⠀⠀⠀⣸⠔⠁⠀⠀⢠⠀⠠⡀⠸⣄⠀⠀⠘⣆⠀⠀⠀⠀\n⠀⠀⠀⠀⠀⢠⠇⠀⢠⠇⠀⢸⠣⡀⢡⠀⠻⡄⠀⠀⠘⣆⠀⠀\n⠀⠀⠀⠀⠀⣾⡄⠀⣮⣼⡦⣀⣴⢾⣾⠀⠰⣷⡀⠀⠀⠘⣆\n⠀⠀⠀⠀⣸⠉⢿⡠⣼⡷⠇⠈⠘⠿⢻⠀⡾⠁⣷⡀⠀⠀⠘⣆\n⠀⠀⠀⣰⠃⠀⠀⢱⠇⢱⡦⠤⠤⢒⡹⢿⠁⠀⡇⠱⡀⠀⠀⠘⡄\n⠀⠀⢠⠏⠀⠀⠀⢸⣤⢾⠆⠤⣤⠕⡒⠉⠓⣶⣿⣤⠅⠀⠀⠀⠹⡄\n⠀⠀⢀⡏⠀⠀⢠⢣⠟⢿⡃⠀⠀⠀⠀⠈⣧⠀⠸⣧⠛⡄⠀⠀⠀⢸\n⠀⠀⣼⠀⠀⣠⣖⠉⡽⢠⡯⣄⠀⠀⠀⠀⣠⣜⣷⠀⠙⡏⠱⡀⠀⡾\n⠀⠀⣿⠀⠀⣇⣠⣶⣷⡄⠙⠳⣞⢻⠛⢃⣿⠋⠁⠀⠀⢹⡄⠙⡀\n⠀⠀⠘⣆⠀⢸⠁⠀⠈⠀⠀⠀⢨⠧⠤⣼⣼⡇⠀⠀⠀⢀⣼⣘⣆\n⠀⠀⠀⠈⠷⠋⠀⠀⠀⣠⣎⢀⡴⠙⠛⠁⠀⠀⠀⠀⠀⠀⠘⢦⣿\n🥬 ♫ Miku is singing ♫ 🥬\n```",
+  "```text\n🎤 HATSUNE MIKU 🎤\n♪⠀⠀⠀⠀⢀⡤⠤⣀⣀⣀⠤⠔⠒⠉⠉⠉⠑⠒⢤⣀⠀⠀⣀⣀⠀⠀⠀⠀⠀⠀\n⠀⠀⠀⠀⡴⠋⠀⡠⣫⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⡽⣄⠀⠙⢦⡀⠀⠀\n⠀⠀⠀⠞⠀⢀⣜⡵⠁⠀⠀⠀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⢎⢦⡀⠀⠳⡀⠀\n⠀⠀⡰⠋⠀⠀⢘⠞⡰⠀⠀⠀⢀⣇⠀⠀⠀⣆⠀⠀⠀⠀⠈⢧⠇⠀⠀⠙⣄\n⠀⠀⠀⠀⠀⡞⡰⡇⠀⠀⢠⣸⠸⡄⠀⠀⢞⢦⡀⠀⠀⠀⠈⢦⡈⣇⠀⠀\n⠀⠀⠀⠀⢸⣱⢩⠀⠀⠀⣼⣏⢀⠹⡄⠀⠘⡄⠙⢦⡀⠀⠀⠈⢿⣾⠀⠀\n⠀⠀⠀⠀⢸⡇⢸⡀⠀⠀⣿⣇⣀⡀⠙⢦⠀⠹⣤⣿⣿⢦⡀⠀⠈⣏⠀⠀\n⠀⠀⠀⠀⠸⠀⢸⢇⠀⠀⣿⡡⢹⣿⡧⠀⠙⠦⣙⣝⣋⠀⢹⠲⣄⣸⠀⠀\n⠀⠀⠀⠀⠀⠘⡚⣆⠀⣟⣇⠃⠭⠔⠀⠀⠀⠀⠉⠓⠀⠇⠀⠀⡏⠀⠀\n⠀⠀⠀⠀⠀⠀⡇⠈⢧⢸⢮⡣⡀⢀⣄⣤⠶⠶⠆⢀⣾⠀⠀⢠⠇\n⠀⠀⠀⠀⠀⠀⢻⠀⠀⠙⠂⠉⠛⠛⠥⣅⣒⣊⠴⠋⡨⢓⡲⡾\n⠀⠀⠀⠀⠀⠀♫⠈⢧⠀⠀⠀⠀⠀⠀⢠⠴⡇⠀⢀⡴⢊⠀⠀⣸\n⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢦⣀⠀⠀⣠⠋⠉⢳⣄⡀⡴⠋\n♫ みくみくにしてあげる ♪\n```"
+];
+
+const mikuTimers = new Map();
+
+function runMikuAnimation(guildId, channelId, messageId, startFrame=0) {
+  if (mikuTimers.has(guildId)) clearInterval(mikuTimers.get(guildId));
+  let frame = startFrame % mikuFrames.length;
+  const timer = setInterval(async () => {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel?.isTextBased()) throw Error("Miku channel unavailable");
+      const message = await channel.messages.fetch(messageId);
+      frame = (frame + 1) % mikuFrames.length;
+      await message.edit({content:mikuFrames[frame], allowedMentions:{parse:[]}});
+      if (cfg[guildId]?.miku) { cfg[guildId].miku.frame = frame; save(); }
+    } catch (e) {
+      console.error("Miku animation:", e.message);
+      clearInterval(timer); mikuTimers.delete(guildId);
+    }
+  }, 1400);
+  mikuTimers.set(guildId, timer);
+}
+
+function schedule(id){
+  if(timers.has(id))clearInterval(timers.get(id));
+  const c=cfg[id];
+  if(!c||!c.enabled)return;
+  const timer=setInterval(async()=>{
+    try{
+      const ch=await client.channels.fetch(c.channelId);
+      if(ch&&ch.isTextBased())await ch.send({content:c.message,allowedMentions:{parse:[]}});
+    }catch(e){console.error("Reminder:",e.message)}
+  },7200000);
+  timers.set(id,timer);
+}
+
+
+const afkConnections=new Map();
+function joinAfk(guild,channel){
+  const old=afkConnections.get(guild.id);
+  if(old){try{old.destroy()}catch{}}
+  const connection=joinVoiceChannel({
+    channelId:channel.id,guildId:guild.id,adapterCreator:guild.voiceAdapterCreator,
+    selfDeaf:true,selfMute:true
+  });
+  afkConnections.set(guild.id,connection);
+  cfg[guild.id]={...(cfg[guild.id]||{}),afkChannelId:channel.id};
+  save();
+  return connection;
+}
+function leaveAfk(guildId){
+  const connection=afkConnections.get(guildId);
+  if(connection){try{connection.destroy()}catch{}}
+  afkConnections.delete(guildId);
+  if(cfg[guildId]){delete cfg[guildId].afkChannelId;save()}
+}
+
+function onlineCount(guild){
+  return guild.presences.cache.filter(p=>p.status==="online"&&!p.user?.bot).size;
+}
+async function refreshOnlineMessage(guild){
+  const c=cfg[guild.id]?.activeCount;
+  if(!c?.channelId||!c?.messageId)return;
+  try{
+    const channel=await client.channels.fetch(c.channelId);
+    if(!channel?.isTextBased())return;
+    const message=await channel.messages.fetch(c.messageId);
+    await message.edit({content:`🟢 **الأعضاء المتصلون الآن: ${onlineCount(guild)}**
+(لا يشمل البوتات)`});
+  }catch(e){console.error("Active count update:",e.message)}
+}
+function queueOnlineUpdate(guild){
+  if(presenceTimers.has(guild.id))clearTimeout(presenceTimers.get(guild.id));
+  presenceTimers.set(guild.id,setTimeout(()=>{
+    presenceTimers.delete(guild.id);
+    refreshOnlineMessage(guild).catch(console.error);
+  },1800));
+}
+
+function makeSession(guild){
+  const s={
+    guild,player:createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}}),
+    connection:null,voiceChannelId:null,url:null,repeat:false,starting:false,ffmpeg:null
+  };
+  s.player.on("error",e=>console.error("Audio player error:",e.message));
+  s.player.on(AudioPlayerStatus.Idle,()=>{
+    if(s.ffmpeg&&!s.ffmpeg.killed)s.ffmpeg.kill("SIGKILL");
+    s.ffmpeg=null;
+    if(s.repeat&&s.url&&!s.starting&&s.voiceChannelId){
+      startMusic(s,s.url).catch(e=>console.error("Repeat:",e));
+    }
+  });
+  sessions.set(guild.id,s);
+  return s;
+}
+function getSession(guild){return sessions.get(guild.id)||makeSession(guild)}
+async function startMusic(s,input){
+  if(s.starting)throw Error("فيه طلب تشغيل قيد التجهيز، انتظر لحظة.");
+  s.starting=true;
+  try{
+    let raw=String(input||"").trim().replace(/^<|>$/g,"").trim();
+    if(!raw)throw Error("اكتب اسم أغنية أو رابطاً.");
+    let target=raw,title=raw;
+    if(/^(www\\.|youtube\\.com\\/|youtu\\.be\\/|m\\.youtube\\.com\\/|music\\.youtube\\.com\\/)/i.test(target))target="https://"+target;
+    if(/open\\.spotify\\.com\\/track\\//i.test(target)){
+      const meta=await fetch("https://open.spotify.com/oembed?url="+encodeURIComponent(target),{signal:AbortSignal.timeout(20000)});
+      if(!meta.ok)throw Error("تعذر قراءة بيانات Spotify.");
+      const data=await meta.json();
+      title=(data.author_name?data.author_name+" - ":"")+(data.title||"");
+      if(!title.trim())throw Error("تعذر استخراج اسم الأغنية من Spotify.");
+      target="ytsearch1:"+title;
+    }else if(!/^https?:\\/\\//i.test(target)){
+      target="ytsearch1:"+target;
+    }
+    let output;
+    try{
+      output=await youtubedl(target,{
+        getUrl:true,format:"bestaudio/best",noPlaylist:true,quiet:true,noWarnings:true,
+        socketTimeout:30,retries:2,extractorRetries:2,
+        execOptions:{timeout:65000}
+      });
+    }catch(e){
+      const detail=String(e.message||e);
+      if(/abort|timeout|timed out/i.test(detail))throw Error("انتهت مهلة استخراج الصوت. جرّب رابط YouTube آخر.");
+      throw Error("فشل استخراج الصوت: "+detail.slice(0,160));
+    }
+    const mediaUrl=String(output||"").trim().split(/\\r?\\n/)[0];
+    if(!/^https?:\\/\\//i.test(mediaUrl))throw Error("لم يتم استخراج رابط صوت صالح.");
+    if(!s.connection||s.connection.state.status===VoiceConnectionStatus.Destroyed){
+      s.connection=joinVoiceChannel({channelId:s.voiceChannelId,guildId:s.guild.id,adapterCreator:s.guild.voiceAdapterCreator,selfDeaf:true});
+      s.connection.on("error",e=>console.error("Voice connection:",e.message));
+      await entersState(s.connection,VoiceConnectionStatus.Ready,25000);
+      s.connection.subscribe(s.player);
+    }
+    if(s.ffmpeg&&!s.ffmpeg.killed)s.ffmpeg.kill("SIGKILL");
+    const ffmpeg=spawn(ffmpegPath,[
+      "-nostdin","-hide_banner","-loglevel","error",
+      "-reconnect","1","-reconnect_streamed","1","-reconnect_delay_max","5",
+      "-i",mediaUrl,"-vn","-f","s16le","-ar","48000","-ac","2","pipe:1"
+    ],{stdio:["ignore","pipe","pipe"]});
+    s.ffmpeg=ffmpeg;
+    ffmpeg.stderr.on("data",chunk=>console.error("FFmpeg:",String(chunk).slice(0,250)));
+    ffmpeg.on("error",e=>console.error("FFmpeg process:",e.message));
+    s.url=target;
+    s.player.play(createAudioResource(ffmpeg.stdout,{inputType:StreamType.Raw}));
+    return title||raw;
+  }catch(e){
+    throw new Error("تعذر تشغيل الصوت: "+(e.message||"مصدر الصوت لم يستجب"));
+  }finally{s.starting=false}
+}
+function musicControls(s,userId){
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`music:${s.guild.id}:${userId}:repeat`)
+      .setLabel(s.repeat?"التكرار: تشغيل":"التكرار: إيقاف")
+      .setStyle(s.repeat?ButtonStyle.Success:ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`music:${s.guild.id}:${userId}:link`)
+      .setLabel("تغيير الرابط").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`music:${s.guild.id}:${userId}:pause`)
+      .setLabel(s.player.state.status===AudioPlayerStatus.Paused?"استئناف":"إيقاف مؤقت")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`music:${s.guild.id}:${userId}:stop`)
+      .setLabel("إيقاف").setStyle(ButtonStyle.Danger)
+  )];
+}
+function musicModal(guildId,userId){
+  const modal=new ModalBuilder().setCustomId(`musiclink:${guildId}:${userId}`).setTitle("تغيير رابط الموسيقى");
+  const input=new TextInputBuilder().setCustomId("url").setLabel("اسم أغنية أو رابط")
+    .setStyle(TextInputStyle.Short).setPlaceholder("اسم الأغنية أو https://...").setRequired(true).setMaxLength(400);
+  modal.addComponents(new ActionRowBuilder().addComponents(input));
+  return modal;
+}
+
+client.once(Events.ClientReady,()=>{
+  console.log("Eto bot online as "+client.user.tag);
+  for(const id of Object.keys(cfg)){
+    schedule(id);
+    if(cfg[id]?.miku){
+      const m=cfg[id].miku;
+      runMikuAnimation(id,m.channelId,m.messageId,m.frame||0);
+    }
+    if(cfg[id]?.afkChannelId){
+      const guild=client.guilds.cache.get(id);
+      const channel=guild?.channels.cache.get(cfg[id].afkChannelId);
+      if(guild&&channel&&channel.isVoiceBased()){
+        try{joinAfk(guild,channel)}catch(e){console.error("AFK restore:",e.message)}
+      }else{delete cfg[id].afkChannelId;save()}
+    }
+    if(cfg[id]?.activeCount){
+      const guild=client.guilds.cache.get(id);
+      if(guild)guild.members.fetch({withPresences:true}).then(()=>refreshOnlineMessage(guild)).catch(e=>console.error("Presence fetch:",e.message));
+    }
   }
-  const data = await response.json();
-  const answer = data.choices?.[0]?.message?.content;
-  if (!answer) throw new Error("خدمة الذكاء الاصطناعي لم ترجع إجابة.");
-  const clean = String(answer).slice(0, 1900);
-  const next = [...history, { role: "user", content: user + ": " + content.slice(0, 3500) }, { role: "assistant", content: clean }].slice(-12);
-  conversations.set(channelId, next);
+});
+
+client.on(Events.VoiceStateUpdate,(oldState,newState)=>{
+  if(newState.id!==client.user?.id)return;
+  if(oldState.channelId&&!newState.channelId){
+    leaveAfk(newState.guild.id);
+  }else if(newState.channelId&&cfg[newState.guild.id]?.afkChannelId!==newState.channelId){
+    cfg[newState.guild.id]={...(cfg[newState.guild.id]||{}),afkChannelId:newState.channelId};
+    save();
+  }
+});
+
+client.on(Events.PresenceUpdate,(oldPresence,newPresence)=>{
+  if(oldPresence?.status===newPresence.status)return;
+  const guild=newPresence.guild||oldPresence?.guild;
+  if(guild&&cfg[guild.id]?.activeCount)queueOnlineUpdate(guild);
+});
+
+client.on(Events.InteractionCreate,async i=>{
+  try{
+    if(i.isButton()&&i.customId.startsWith("music:")){
+      const [,guildId,userId,action]=i.customId.split(":");
+      if(i.user.id!==userId)return i.reply({content:"هذه لوحة تحكم صاحب التشغيل فقط.",flags:MessageFlags.Ephemeral});
+      const s=sessions.get(guildId);
+      if(!s)return i.reply({content:"جلسة الموسيقى انتهت. شغّل الأمر من جديد.",flags:MessageFlags.Ephemeral});
+      if(action==="repeat"){
+        s.repeat=!s.repeat;
+        return i.update({content:`🎵 التحكم بالموسيقى\nالتكرار: **${s.repeat?"مفعّل":"متوقف"}**`,components:musicControls(s,userId)});
+      }
+      if(action==="link")return i.showModal(musicModal(guildId,userId));
+      if(action==="pause"){
+        if(s.player.state.status===AudioPlayerStatus.Paused)s.player.unpause();
+        else s.player.pause();
+        return i.update({content:s.player.state.status===AudioPlayerStatus.Paused?"⏸️ تم إيقاف الصوت مؤقتاً.":"▶️ تم استئناف الصوت.",components:musicControls(s,userId)});
+      }
+      if(action==="stop"){
+        s.repeat=false;
+        s.player.stop(true);
+        if(s.ffmpeg&&!s.ffmpeg.killed)s.ffmpeg.kill("SIGKILL");
+        if(s.connection){s.connection.destroy();s.connection=null}
+        return i.update({content:"⏹️ تم إيقاف الموسيقى ومغادرة الروم. يمكنك تغيير الرابط من نفس القائمة.",components:musicControls(s,userId)});
+      }
+    }
+
+    if(i.isModalSubmit()&&i.customId.startsWith("musiclink:")){
+      const [,guildId,userId]=i.customId.split(":");
+      if(i.user.id!==userId)return i.reply({content:"هذه اللوحة ليست لك.",flags:MessageFlags.Ephemeral});
+      const s=sessions.get(guildId);
+      if(!s)return i.reply({content:"انتهت جلسة الموسيقى. شغّل الأمر من جديد.",flags:MessageFlags.Ephemeral});
+      const url=i.fields.getTextInputValue("url").trim();
+      if(!url?.trim())return i.reply({content:"اكتب اسم أغنية أو رابطاً صالحاً.",flags:MessageFlags.Ephemeral});
+      const title=await startMusic(s,url);
+      return i.reply({content:"🎵 تم تشغيل: **"+title.slice(0,180)+"**",components:musicControls(s,userId),flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.isStringSelectMenu()&&i.customId==="eto:help"){
+      const pages={
+        community:["👥 الأعضاء والمجتمع","/عضو • /سيرفر • /رساله"],
+        fun:["✨ الترفيه والابتكار","/نشرة_إيتو • /ماذا_لو • /بصمة"],
+        voice:["🎧 الصوت والموسيقى","/موسيقى تشغيل • /موسيقى ايقاف • /afk دخول • /afk خروج • /afk حالة"],
+        admin:["🛡️ الإدارة والحماية","/تحذير • /مهلة • /طرد • /حظر • /مسح • /قفل • /فتح • /بطء"],
+        tools:["⚙️ الأدوات والإحصاءات","/تفاعل تشغيل • /تفاعل ايقاف • /عدد_نشطين • /تحديث • /تفعيل_وضع_مراسل • /إيقاف_وضع_مراسل"]
+      };
+      const page=pages[i.values[0]];
+      if(!page)return i.deferUpdate();
+      const embed=new EmbedBuilder().setColor(0x8BD5FF).setTitle(page[0]).setDescription(page[1])
+        .setFooter({text:"اختر قسماً آخر من القائمة للتنقل"});
+      return i.update({embeds:[embed]});
+    }
+    if(!i.isChatInputCommand())return;
+
+
+
+
+    if(i.commandName==="miku2"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const members=await i.guild.members.fetch();
+      const recipients=[...members.values()].filter(member=>!member.user.bot);
+      let sent=0,failed=0;
+      const welcome="🎤 ميكو ترحب بكم! 🥬\\n\\n"+mikuFrames[0];
+      for(let n=0;n<recipients.length;n++){
+        try{
+          await recipients[n].send({content:welcome,allowedMentions:{parse:[]}});
+          sent++;
+        }catch{failed++}
+        if((n+1)%25===0)
+          await i.editReply({content:"جاري إرسال ترحيب ميكو... "+(n+1)+"/"+recipients.length});
+        await new Promise(resolve=>setTimeout(resolve,500));
+      }
+      return i.editReply({content:"🎤 انتهى ترحيب ميكو!\\nوصلت الرسالة إلى: "+sent+" عضو.\\nتعذر الإرسال إلى: "+failed+" عضو (غالباً الخاص مغلق)."});
+    }
+
+    if(i.commandName==="miku"){
+      const channel=i.options.getChannel("الروم");
+      if(!channel?.isTextBased())
+        return i.reply({content:"اختر رومًا نصيًا صالحًا.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      let message=null;
+      const old=cfg[i.guildId]?.miku;
+      if(old?.channelId===channel.id){
+        try{message=await channel.messages.fetch(old.messageId)}catch{}
+      }
+      if(message){
+        await message.edit({content:mikuFrames[0],allowedMentions:{parse:[]}});
+      }else{
+        message=await channel.send({content:mikuFrames[0],allowedMentions:{parse:[]}});
+      }
+      cfg[i.guildId]={...(cfg[i.guildId]||{}),miku:{channelId:channel.id,messageId:message.id,frame:0}};
+      save();
+      runMikuAnimation(i.guildId,channel.id,message.id,0);
+      return i.editReply({content:"بدأت ميكو ترقص في "+channel+". الرسمة تتغير داخل نفس الرسالة كل 1.4 ثانية."});
+    }
+
+    if(i.commandName==="تهكير"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({content:"تحتاج صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const store=await loadChannelBackups();
+      if(store.data[i.guildId])
+        return i.editReply("فيه نسخة احتياطية محفوظة بالفعل. استخدم /ارجاع_تهكير أولاً حتى لا تضيع الأسماء الأصلية.");
+      await i.guild.channels.fetch();
+      const channels=[...i.guild.channels.cache.values()].filter(ch=>
+        !ch.isThread()&&ch.manageable&&ch.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageChannels)
+      );
+      if(!channels.length)return i.editReply("ما لقيت رومات أقدر أعدل أسماءها. تأكد من صلاحية Manage Channels للبوت.");
+      const original={guildName:i.guild.name,createdAt:Date.now(),channels:Object.fromEntries(channels.map(ch=>[ch.id,ch.name]))};
+      store.data[i.guildId]=original;
+      await saveChannelBackups(store.data,store.sha,store.url,store.token);
+      let changed=0,failed=0;
+      for(const channel of channels){
+        try{await channel.setName("ايتو عمك","مقلب تغيير أسماء الرومات");changed++}
+        catch(e){failed++;console.error("Channel rename:",channel.id,e.message)}
+      }
+      return i.editReply("💻 تم تفعيل المقلب!\nتم تغيير أسماء **"+changed+"** روم إلى **ايتو عمك**."+(failed?"\nتعذر تعديل "+failed+" رومات بسبب الصلاحيات أو قيود Discord.":"")+"\nالنسخة الأصلية محفوظة. استخدم /ارجاع_تهكير لإرجاعها.");
+    }
+
+    if(i.commandName==="ارجاع_تهكير"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({content:"تحتاج صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const store=await loadChannelBackups();
+      const backup=store.data[i.guildId];
+      if(!backup)return i.editReply("ما فيه نسخة احتياطية لهذا السيرفر. شغّل /تهكير أولاً.");
+      await i.guild.channels.fetch();
+      let restored=0,missing=0,failed=0;
+      for(const [id,name] of Object.entries(backup.channels)){
+        const channel=i.guild.channels.cache.get(id);
+        if(!channel){missing++;continue}
+        if(!channel.manageable||!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageChannels)){failed++;continue}
+        try{await channel.setName(name,"إرجاع أسماء الرومات الأصلية");restored++}
+        catch(e){failed++;console.error("Channel restore:",id,e.message)}
+      }
+      if(missing===0&&failed===0){
+        delete store.data[i.guildId];
+        await saveChannelBackups(store.data,store.sha,store.url,store.token);
+      }
+      return i.editReply("♻️ انتهى الاسترجاع.\nتم إرجاع **"+restored+"** روم إلى أسمائها الأصلية."+(missing?"\nرومات محذوفة أو غير موجودة: "+missing+".":"")+(failed?"\nتعذر إرجاع "+failed+" رومات. النسخة الاحتياطية ما زالت محفوظة لإعادة المحاولة.":"\nتم حذف النسخة الاحتياطية بعد نجاح الاسترجاع."));
+    }
+
+    if(i.commandName==="تفعيل_وضع_مراسل"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      const ch=i.options.getChannel("الروم");
+      cfg[i.guildId]={...(cfg[i.guildId]||{}),messenger:{enabled:true,channelId:ch.id}};
+      save();
+      return i.reply({content:"تم تفعيل وضع المراسل في <#"+ch.id+">.\\n"+(process.env.GROQ_API_KEY?"المراسل جاهز للرد حسب سياق المحادثة.":"باقي إضافة مفتاح GROQ_API_KEY في GitHub Secrets حتى يبدأ الذكاء الاصطناعي بالرد."),flags:MessageFlags.Ephemeral});
+    }
+    if(i.commandName==="إيقاف_وضع_مراسل"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      if(cfg[i.guildId]?.messenger)cfg[i.guildId].messenger.enabled=false;
+      save();
+      return i.reply({content:"تم إيقاف وضع المراسل.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="afk"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر للتحكم بوضع AFK.",flags:MessageFlags.Ephemeral});
+      const sub=i.options.getSubcommand();
+      if(sub==="دخول"){
+        const channel=i.options.getChannel("الروم");
+        if(!channel?.isVoiceBased())return i.reply({content:"اختر روم صوتي صالحاً.",flags:MessageFlags.Ephemeral});
+        joinAfk(i.guild,channel);
+        return i.reply({content:"💤 دخل البوت <#"+channel.id+"> وسيبقى هناك حتى تستخدم /afk خروج أو تخرجه يدوياً.",flags:MessageFlags.Ephemeral});
+      }
+      if(sub==="خروج"){
+        leaveAfk(i.guildId);
+        return i.reply({content:"تم إخراج البوت من الروم الصوتي.",flags:MessageFlags.Ephemeral});
+      }
+      const channelId=cfg[i.guildId]?.afkChannelId;
+      return i.reply({content:channelId?"البوت موجود حالياً في <#"+channelId+">.":"البوت ليس في وضع AFK حالياً.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="مساعدة"){
+      const menu=new StringSelectMenuBuilder().setCustomId("eto:help")
+        .setPlaceholder("اختر القسم لعرض أوامره")
+        .addOptions(
+          new StringSelectMenuOptionBuilder().setLabel("الأعضاء والمجتمع").setValue("community").setEmoji("👥"),
+          new StringSelectMenuOptionBuilder().setLabel("الترفيه والابتكار").setValue("fun").setEmoji("✨"),
+          new StringSelectMenuOptionBuilder().setLabel("الصوت والموسيقى").setValue("voice").setEmoji("🎧"),
+          new StringSelectMenuOptionBuilder().setLabel("الإدارة والحماية").setValue("admin").setEmoji("🛡️"),
+          new StringSelectMenuOptionBuilder().setLabel("الأدوات والإحصاءات").setValue("tools").setEmoji("⚙️")
+        );
+      const embed=new EmbedBuilder().setColor(0x8BD5FF).setTitle("❄️ مركز Eto")
+        .setDescription("مركز تفاعلي. اختر قسماً من القائمة لتظهر لك أوامره.")
+        .setFooter({text:"Eto Network • Control Center"});
+      return i.reply({embeds:[embed],components:[new ActionRowBuilder().addComponents(menu)],flags:MessageFlags.Ephemeral});
+    }
+    if(i.commandName==="نشرة_إيتو"){
+      const headlines=[
+        ["📡 إشارة من خارج الخريطة","وصلت رسالة مشوشة تقول: «لا تبحثوا عن الباب، الباب يبحث عنكم». لم يُعرف مصدرها."],
+        ["🏛️ قرار غريب","أعلنت بلدية القمر منع الظلال من الوقوف في الطوابير، وطلبت من الجميع إحضار ظل احتياطي."],
+        ["🧊 الطقس داخل السيرفر","احتمال تساقط مكعبات ثلج افتراضية بنسبة 87%. يُنصح بإبعاد المايك عن العاصفة."],
+        ["🛰️ اكتشاف اليوم","رُصد كوكب صغير يدور حول إشعار ديسكورد لم يُفتح منذ 2021."],
+        ["🗞️ خبر عاجل","مصدر مجهول يؤكد أن الساعة تأخرت دقيقة لأنها كانت تقرأ المحادثة."]
+      ];
+      const item=headlines[Math.floor(Math.random()*headlines.length)];
+      const embed=new EmbedBuilder().setColor(0x8BD5FF).setTitle("🗞️ نشرة إيتو | "+item[0])
+        .setDescription(item[1]).setFooter({text:"نشرة خيالية للترفيه • لا تمثل أخباراً حقيقية"}).setTimestamp();
+      return i.reply({embeds:[embed]});
+    }
+    if(i.commandName==="ماذا_لو"){
+      const idea=i.options.getString("الفكرة");
+      const twists=[
+        "بعد ساعة، يبدأ الجميع بملاحظة أن التفاصيل الصغيرة حولهم تتغير، لكن شخصاً واحداً فقط يتذكر شكل العالم السابق.",
+        "تظهر وثيقة قديمة تثبت أن الحدث كان متوقعاً، لكن آخر سطر فيها مكتوب بخط يشبه خطك.",
+        "ينقسم الناس إلى فريقين: فريق يريد إيقاف ما يحدث، وفريق يعتقد أن هذه هي الفرصة الوحيدة لتغيير شيء أكبر.",
+        "تصل رسالة قصيرة من المستقبل، لا تحذّر من الخطر، بل تسأل لماذا لم تتخذوا القرار بعد.",
+        "يبدو الأمر عادياً في البداية، ثم تكتشف أن كل اختيار صغير يفتح مساراً مختلفاً تماماً."
+      ];
+      const embed=new EmbedBuilder().setColor(0xB8A1FF).setTitle("🌀 ملف ماذا لو؟")
+        .addFields({name:"الفكرة",value:idea},{name:"ما الذي يحدث بعدها؟",value:twists[Math.floor(Math.random()*twists.length)]})
+        .setFooter({text:"سيناريو خيالي من مختبر Eto"});
+      return i.reply({embeds:[embed]});
+    }
+    if(i.commandName==="بصمة"){
+      const traits=[
+        ["🧭 مستكشف الأنماط","تلاحظ التفاصيل التي تمر على الآخرين، وتحب فهم الصورة قبل التحرك."],
+        ["🧊 هدوء محسوب","لا تتسرع في رد الفعل، وتفضّل أن تتكلم عندما يكون عندك شيء يستحق."],
+        ["⚡ شرارة الأفكار","تربط أشياء بعيدة عن بعضها وتطلع منها بفكرة جديدة."],
+        ["🛰️ مراقب من المدار","تراقب المشهد أولاً، ثم تختار اللحظة المناسبة للدخول."]
+      ];
+      const item=traits[Math.floor(Math.random()*traits.length)];
+      const embed=new EmbedBuilder().setColor(0x8BD5FF).setTitle("🪪 بصمة Eto")
+        .setDescription("**"+item[0]+"**\n"+item[1])
+        .setThumbnail(i.user.displayAvatarURL({size:256}))
+        .setFooter({text:"وصف خيالي للتسلية، وليس حكماً على شخصيتك"});
+      return i.reply({embeds:[embed]});
+    }
+
+    if(i.commandName==="عضو"){
+      const user=i.options.getUser("العضو")||i.user;
+      const member=await i.guild.members.fetch(user.id).catch(()=>null);
+      const embed=new EmbedBuilder().setColor(0x7BC8F6).setTitle("👤 معلومات العضو")
+        .setThumbnail(user.displayAvatarURL({size:256}))
+        .addFields(
+          {name:"الاسم",value:user.tag,inline:true},
+          {name:"المعرف",value:user.id,inline:true},
+          {name:"الحساب",value:"<t:"+Math.floor(user.createdTimestamp/1000)+":R>",inline:true},
+          {name:"انضم للسيرفر",value:member?.joinedTimestamp?"<t:"+Math.floor(member.joinedTimestamp/1000)+":R>":"غير متاح",inline:true},
+          {name:"البوت؟",value:user.bot?"نعم":"لا",inline:true}
+        );
+      return i.reply({embeds:[embed],flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="سيرفر"){
+      const g=i.guild;
+      const embed=new EmbedBuilder().setColor(0x7BC8F6).setTitle("🏠 "+g.name)
+        .setThumbnail(g.iconURL({size:256}))
+        .addFields(
+          {name:"المالك",value:"<@"+g.ownerId+">",inline:true},
+          {name:"الأعضاء",value:String(g.memberCount),inline:true},
+          {name:"الرومات",value:String(g.channels.cache.size),inline:true},
+          {name:"تاريخ الإنشاء",value:"<t:"+Math.floor(g.createdTimestamp/1000)+":D>",inline:true},
+          {name:"المستوى",value:String(g.premiumTier),inline:true}
+        );
+      return i.reply({embeds:[embed],flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="مسح"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageMessages))
+        return i.reply({content:"تحتاج صلاحية إدارة الرسائل.",flags:MessageFlags.Ephemeral});
+      const amount=i.options.getInteger("العدد");
+      const deleted=await i.channel.bulkDelete(amount,true);
+      return i.reply({content:"🧹 تم حذف "+deleted.size+" رسالة. الرسائل الأقدم من 14 يوماً لا يمكن حذفها بهذه الطريقة.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="قفل"||i.commandName==="فتح"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({content:"تحتاج صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
+      const lock=i.commandName==="قفل";
+      await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:lock?false:null});
+      return i.reply({content:lock?"🔒 تم قفل الكتابة في هذا الروم.":"🔓 تم فتح الكتابة وإزالة منع الكتابة العام.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="بطء"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({content:"تحتاج صلاحية إدارة القنوات.",flags:MessageFlags.Ephemeral});
+      const seconds=i.options.getInteger("ثواني");
+      await i.channel.setRateLimitPerUser(seconds);
+      return i.reply({content:seconds?("🐢 تم ضبط مهلة إرسال الرسائل على "+seconds+" ثانية."):"تم إيقاف وضع البطء.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="مهلة"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ModerateMembers))
+        return i.reply({content:"تحتاج صلاحية إدارة الأعضاء.",flags:MessageFlags.Ephemeral});
+      const user=i.options.getUser("العضو"),minutes=i.options.getInteger("دقائق"),reason=i.options.getString("السبب")||"بدون سبب";
+      if(user.id===i.user.id||user.id===client.user.id)return i.reply({content:"لا يمكن تطبيق المهلة على هذا الحساب.",flags:MessageFlags.Ephemeral});
+      const member=await i.guild.members.fetch(user.id);
+      await member.timeout(minutes*60000,reason);
+      return i.reply({content:"⏳ تم إعطاء <@"+user.id+"> مهلة لمدة "+minutes+" دقيقة. السبب: "+reason});
+    }
+
+    if(i.commandName==="طرد"||i.commandName==="حظر"){
+      const isBan=i.commandName==="حظر";
+      const permission=isBan?PermissionFlagsBits.BanMembers:PermissionFlagsBits.KickMembers;
+      if(!i.memberPermissions?.has(permission))
+        return i.reply({content:isBan?"تحتاج صلاحية حظر الأعضاء.":"تحتاج صلاحية طرد الأعضاء.",flags:MessageFlags.Ephemeral});
+      const user=i.options.getUser("العضو"),reason=i.options.getString("السبب")||"بدون سبب";
+      if(user.id===i.user.id||user.id===client.user.id)return i.reply({content:"لا يمكن تنفيذ هذا الإجراء على هذا الحساب.",flags:MessageFlags.Ephemeral});
+      const member=await i.guild.members.fetch(user.id);
+      if(isBan)await member.ban({reason});else await member.kick(reason);
+      return i.reply({content:(isBan?"🔨 تم حظر ":"👢 تم طرد ")+user.tag+". السبب: "+reason});
+    }
+
+    if(i.commandName==="عدد_نشطين"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      const ch=i.options.getChannel("الروم");
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      await i.guild.members.fetch({withPresences:true});
+      const message=await ch.send({content:`🟢 **الأعضاء المتصلون الآن: ${onlineCount(i.guild)}**
+(لا يشمل البوتات)`});
+      cfg[i.guildId]={...(cfg[i.guildId]||{}),activeCount:{channelId:ch.id,messageId:message.id}};
+      save();
+      return i.editReply({content:"تم تفعيل عداد المتصلين في <#"+ch.id+">. سيُحدّث نفس الرسالة تلقائياً."});
+    }
+
+    if(i.commandName==="تحديث"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      const ch=i.options.getChannel("الروم"),message=i.options.getString("الرسالة");
+      await ch.send({content:"@everyone\n"+message,allowedMentions:{parse:["everyone"]}});
+      return i.reply({content:"تم إرسال إعلان التحديث في <#"+ch.id+"> مع منشن الجميع.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="تفاعل"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return i.reply({content:"تحتاج صلاحية إدارة السيرفر.",flags:MessageFlags.Ephemeral});
+      if(i.options.getSubcommand()==="تشغيل"){
+        const ch=i.options.getChannel("الروم");
+        cfg[i.guildId]={...(cfg[i.guildId]||{}),enabled:true,channelId:ch.id,message:"❄️ وقت التفاعل! شاركونا وجودكم في السيرفر."};
+        save();schedule(i.guildId);
+        return i.reply({content:"تم تشغيل التذكير في <#"+ch.id+">. سيبدأ الإرسال بعد ساعتين.",flags:MessageFlags.Ephemeral});
+      }
+      if(timers.has(i.guildId))clearInterval(timers.get(i.guildId));
+      timers.delete(i.guildId);
+      cfg[i.guildId]={...(cfg[i.guildId]||{}),enabled:false};
+      save();
+      return i.reply({content:"تم إيقاف التذكير.",flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="رساله"){
+      const user=i.options.getUser("العضو"),message=i.options.getString("النص");
+      if(user.bot)return i.reply({content:"لا يمكن إرسال رسالة إلى بوت.",flags:MessageFlags.Ephemeral});
+      try{
+        await user.send({content:message,allowedMentions:{parse:[]}});
+        return i.reply({content:"تم إرسال الرسالة إلى خاص <@"+user.id+">.",flags:MessageFlags.Ephemeral});
+      }catch{
+        return i.reply({content:"تعذر الإرسال. قد يكون الخاص مغلقاً أو أن العضو يمنع الرسائل.",flags:MessageFlags.Ephemeral});
+      }
+    }
+
+    if(i.commandName==="تحذير"){
+      if(!i.memberPermissions?.has(PermissionFlagsBits.ModerateMembers))
+        return i.reply({content:"تحتاج صلاحية إدارة الأعضاء.",flags:MessageFlags.Ephemeral});
+      const user=i.options.getUser("العضو"),type=i.options.getString("النوع"),
+        reason=i.options.getString("السبب"),log=i.options.getChannel("روم_السجل");
+      const label=type==="staff"?"تحذير إداري / موظف":"تحذير عضو";
+      const embed=new EmbedBuilder().setColor(type==="staff"?0xD9A441:0xD94B4B)
+        .setTitle("⚠️ تسجيل تحذير")
+        .addFields(
+          {name:"العضو",value:"<@"+user.id+"> ("+user.tag+")"},
+          {name:"النوع",value:label,inline:true},
+          {name:"بواسطة",value:"<@"+i.user.id+">",inline:true},
+          {name:"السبب",value:reason}
+        ).setTimestamp();
+      await log.send({embeds:[embed]});
+      let dm=true;
+      try{
+        await user.send({embeds:[new EmbedBuilder().setColor(0xD94B4B)
+          .setTitle("⚠️ لديك تحذير في السيرفر")
+          .setDescription("السيرفر: "+i.guild.name+"\nالنوع: "+label+"\nالسبب: "+reason).setTimestamp()]});
+      }catch{dm=false}
+      return i.reply({content:"تم تسجيل التحذير في <#"+log.id+">."+(dm?" وتم إرسال نسخة للخاص.":" لكن الخاص مغلق، ولم تصل رسالة DM."),flags:MessageFlags.Ephemeral});
+    }
+
+    if(i.commandName==="موسيقى"){
+      if(i.options.getSubcommand()==="ايقاف"){
+        const s=sessions.get(i.guildId);
+        if(s){
+          s.repeat=false;s.player.stop(true);
+          if(s.ffmpeg&&!s.ffmpeg.killed)s.ffmpeg.kill("SIGKILL");
+          if(s.connection)s.connection.destroy();
+          sessions.delete(i.guildId);
+        }
+        return i.reply({content:"تم إيقاف الموسيقى ومغادرة الروم.",flags:MessageFlags.Ephemeral});
+      }
+      const member=await i.guild.members.fetch(i.user.id),voice=member.voice.channel;
+      if(!voice)return i.reply({content:"ادخل روم صوتي أولاً.",flags:MessageFlags.Ephemeral});
+      const url=i.options.getString("الرابط");
+      if(!url?.trim())return i.reply({content:"اكتب اسم أغنية أو رابطاً صالحاً.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const s=getSession(i.guild);
+      s.voiceChannelId=voice.id;s.repeat=false;
+      const title=await startMusic(s,url);
+      return i.editReply({content:"🎵 بدأ التشغيل: **"+title.slice(0,180)+"**",components:musicControls(s,i.user.id)});
+    }
+  }catch(e){
+    console.error(e);
+    const msg=i.commandName==="موسيقى"?"تعذر تشغيل الموسيقى. "+(e.message||"تحقق من صلاحيات Connect وSpeak ومصدر الصوت."):"تعذر تنفيذ الأمر. تحقق من صلاحيات البوت وأن الرابط مدعوم.";
+    if(i.deferred||i.replied)await i.followUp({content:msg,flags:MessageFlags.Ephemeral}).catch(()=>{});
+    else await i.reply({content:msg,flags:MessageFlags.Ephemeral}).catch(()=>{});
+  }
+});
+
+
+async function askTalkingAI(channelId,user,content){
+  if(!AI_API_KEY)throw Error("أضف AI_API_KEY في Secrets.");
+  const history=conversations.get(channelId)||[];
+  const response=await fetch(AI_BASE_URL+"/chat/completions",{
+    method:"POST",headers:{"Authorization":"Bearer "+AI_API_KEY,"Content-Type":"application/json"},
+    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"أنت مساعد مختصر. أجب بلغة المستخدم وبشكل طبيعي."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:450}),
+    signal:AbortSignal.timeout(60000)
+  });
+  if(!response.ok)throw Error("AI API "+response.status+": "+(await response.text()).slice(0,150));
+  const data=await response.json(),answer=data.choices?.[0]?.message?.content;
+  if(!answer)throw Error("لم ترجع خدمة AI إجابة.");
+  const clean=String(answer).slice(0,1800);
+  conversations.set(channelId,[...history,{role:"user",content:user+": "+content},{role:"assistant",content:clean}].slice(-12));
   return clean;
 }
-async function synthesizeSpeech(text) {
-  if (!TTS_API_KEY) throw new Error("مفتاح تحويل النص إلى صوت غير مضبوط.");
-  const response = await fetchWithTimeout(TTS_BASE_URL + "/audio/speech", {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + TTS_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: TTS_MODEL, voice: TTS_VOICE, input: text.slice(0, 3500), response_format: "mp3" })
-  }, 90000);
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error("TTS API " + response.status + ": " + body.slice(0, 160));
-  }
-  return Buffer.from(await response.arrayBuffer());
-}
-async function speakInVoice(session, text) {
-  const audio = await synthesizeSpeech(text);
-  const ffmpeg = spawn(ffmpegPath, [
-    "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
-    "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"
-  ], { stdio: ["pipe", "pipe", "pipe"] });
-  session.ffmpeg = ffmpeg;
-  ffmpeg.stdin.end(audio);
-  const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw });
-  session.player.play(resource);
-  await new Promise((resolve, reject) => {
-    const onIdle = () => { cleanup(); resolve(); };
-    const onError = error => { cleanup(); reject(error); };
-    const cleanup = () => {
-      session.player.off(AudioPlayerStatus.Idle, onIdle);
-      session.player.off("error", onError);
-    };
-    session.player.once(AudioPlayerStatus.Idle, onIdle);
-    session.player.once("error", onError);
+async function speakTalking(session,text){
+  if(!TTS_API_KEY)throw Error("أضف TTS_API_KEY أو استخدم مزود AI يدعم تحويل النص لصوت.");
+  const response=await fetch(TTS_BASE_URL+"/audio/speech",{
+    method:"POST",headers:{"Authorization":"Bearer "+TTS_API_KEY,"Content-Type":"application/json"},
+    body:JSON.stringify({model:TTS_MODEL,voice:TTS_VOICE,input:text.slice(0,2500),response_format:"mp3"}),
+    signal:AbortSignal.timeout(90000)
   });
-  if (!ffmpeg.killed) ffmpeg.kill("SIGKILL");
-  session.ffmpeg = null;
+  if(!response.ok)throw Error("TTS API "+response.status);
+  const audio=Buffer.from(await response.arrayBuffer());
+  const ff=spawn(ffmpegPath,["-hide_banner","-loglevel","error","-i","pipe:0","-f","s16le","-ar","48000","-ac","2","pipe:1"],{stdio:["pipe","pipe","pipe"]});
+  session.ffmpeg=ff;ff.stdin.end(audio);
+  session.player.play(createAudioResource(ff.stdout,{inputType:StreamType.Raw}));
+  await new Promise((resolve,reject)=>{
+    const idle=()=>{clean();resolve()},err=e=>{clean();reject(e)};
+    const clean=()=>{session.player.off(AudioPlayerStatus.Idle,idle);session.player.off("error",err)};
+    session.player.once(AudioPlayerStatus.Idle,idle);session.player.once("error",err);
+  });
+  if(!ff.killed)ff.kill("SIGKILL");session.ffmpeg=null;
 }
-function stopTalking(channelId) {
-  const mode = talkingModes.get(channelId);
-  if (!mode) return false;
+function stopTalking(channelId){
+  const mode=talkingModes.get(channelId);if(!mode)return false;
   talkingModes.delete(channelId);
-  if (mode.voiceSession) {
-    mode.voiceSession.player.stop(true);
-    if (mode.voiceSession.ffmpeg && !mode.voiceSession.ffmpeg.killed) mode.voiceSession.ffmpeg.kill("SIGKILL");
-    try { mode.voiceSession.connection.destroy(); } catch {}
-  }
-  conversations.delete(channelId);
-  return true;
+  if(mode.voice){mode.voice.player.stop(true);if(mode.voice.ffmpeg&&!mode.voice.ffmpeg.killed)mode.voice.ffmpeg.kill("SIGKILL");try{mode.voice.connection.destroy()}catch{}}
+  conversations.delete(channelId);return true;
 }
-
-const musicCommand = new SlashCommandBuilder()
-  .setName("music").setDescription("تشغيل الموسيقى")
-  .addSubcommand(sub => sub.setName("play").setDescription("تشغيل ملف أو رابط YouTube أو Spotify")
-    .addStringOption(option => {
-      option.setName("song").setDescription("أغنية محفوظة في songs").setRequired(false);
-      for (const song of listSongs().slice(0, 25)) option.addChoices({ name: displayName(song).slice(0, 100), value: song });
-      return option;
-    })
-    .addStringOption(option => option.setName("url").setDescription("رابط أغنية YouTube أو Spotify").setRequired(false)))
-  .addSubcommand(sub => sub.setName("stop").setDescription("إيقاف الموسيقى"));
-
-const talkingCommand = new SlashCommandBuilder()
-  .setName("talking").setDescription("تشغيل مساعد الذكاء الاصطناعي")
-  .addSubcommand(sub => sub.setName("ai").setDescription("تفعيل الردود الذكية في هذه القناة"))
-  .addSubcommand(sub => sub.setName("stop").setDescription("إيقاف المساعد في هذه القناة"))
-  .addSubcommandGroup(group => group.setName("voice").setDescription("مساعد صوتي")
-    .addSubcommand(sub => sub.setName("ai").setDescription("دخول رومك الصوتي والتحدث بالذكاء الاصطناعي")));
-
-client.once(Events.ClientReady, readyClient => {
-  console.log("Eto Bot ready as " + readyClient.user.tag);
-  console.log("Available local songs: " + listSongs().length);
+client.on(Events.MessageCreate,async message=>{
+  if(!message.guild||message.author.bot||!message.content.trim())return;
+  const mode=talkingModes.get(message.channelId);if(!mode)return;
+  try{
+    const answer=await askTalkingAI(message.channelId,message.member?.displayName||message.author.username,message.content);
+    await message.reply({content:answer,allowedMentions:{repliedUser:false}});
+    if(mode.voice)mode.queue=(mode.queue||Promise.resolve()).then(()=>speakTalking(mode.voice,answer)).catch(e=>message.channel.send("تعذر إخراج الرد صوتياً: "+String(e.message||e).slice(0,150)).catch(()=>{}));
+  }catch(e){await message.reply({content:"تعذر رد AI: "+String(e.message||e).slice(0,180),allowedMentions:{repliedUser:false}}).catch(()=>{});}
 });
-
-client.on(Events.MessageCreate, async message => {
-  if (!message.guild || message.author.bot || !message.content.trim()) return;
-  const mode = talkingModes.get(message.channelId);
-  if (!mode) return;
-  try {
-    const answer = await askAI(message.channelId, message.member?.displayName || message.author.username, message.content);
-    await message.reply({ content: answer, allowedMentions: { repliedUser: false } });
-    if (mode.voiceSession) {
-      mode.voiceQueue = (mode.voiceQueue || Promise.resolve())
-        .then(() => speakInVoice(mode.voiceSession, answer))
-        .catch(error => {
-          console.error("Voice AI error:", error);
-          message.channel.send("تعذر تحويل الرد إلى صوت. تحقق من إعدادات TTS.").catch(() => {});
-        });
+client.on(Events.InteractionCreate,async i=>{
+  if(!i.isChatInputCommand())return;
+  try{
+    if(i.commandName==="talking"){
+      const group=i.options.getSubcommandGroup(false),sub=i.options.getSubcommand(),channel=i.channel;
+      if(sub==="stop")return i.reply({content:stopTalking(channel.id)?"تم إيقاف المساعد.":"المساعد غير مفعّل هنا.",flags:MessageFlags.Ephemeral});
+      if(!AI_API_KEY)return i.reply({content:"أضف AI_API_KEY في Secrets.",flags:MessageFlags.Ephemeral});
+      if(group==="voice"){
+        if(!TTS_API_KEY)return i.reply({content:"أضف TTS_API_KEY لتفعيل الصوت.",flags:MessageFlags.Ephemeral});
+        const voice=i.member?.voice?.channel;if(!voice)return i.reply({content:"ادخل روم صوتي أولاً.",flags:MessageFlags.Ephemeral});
+        await i.deferReply({flags:MessageFlags.Ephemeral});
+        const connection=joinVoiceChannel({channelId:voice.id,guildId:i.guildId,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:true});
+        try{await entersState(connection,VoiceConnectionStatus.Ready,25000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);talkingModes.set(channel.id,{voice:voiceSession,queue:Promise.resolve()});return i.editReply("دخلت الروم الصوتي. اكتب في هذه القناة النصية لأرد كتابةً وصوتاً.");}
+        catch(e){try{connection.destroy()}catch{}throw e;}
+      }
+      talkingModes.set(channel.id,{voice:null,queue:Promise.resolve()});conversations.set(channel.id,[]);
+      return i.reply({content:"تم تفعيل AI في هذه القناة.",flags:MessageFlags.Ephemeral});
     }
-  } catch (error) {
-    console.error("Talking AI error:", error);
-    await message.reply({
-      content: "تعذر الحصول على رد من الذكاء الاصطناعي: " + String(error.message || error).slice(0, 220),
-      allowedMentions: { repliedUser: false }
-    }).catch(() => {});
+    if(i.commandName==="music"){
+      const sub=i.options.getSubcommand();
+      if(sub==="stop"){const s=sessions.get(i.guildId);if(s){s.repeat=false;s.player.stop(true);if(s.ffmpeg&&!s.ffmpeg.killed)s.ffmpeg.kill("SIGKILL");if(s.connection)s.connection.destroy();sessions.delete(i.guildId);}return i.reply({content:"تم إيقاف الموسيقى.",flags:MessageFlags.Ephemeral});}
+      const voice=i.member?.voice?.channel;if(!voice)return i.reply({content:"ادخل روم صوتي أولاً.",flags:MessageFlags.Ephemeral});
+      const query=i.options.getString("url")||i.options.getString("song");
+      if(!query)return i.reply({content:"اكتب اسم الأغنية أو رابطها.",flags:MessageFlags.Ephemeral});
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const s=getSession(i.guild);s.voiceChannelId=voice.id;s.repeat=false;
+      const title=await startMusic(s,query);
+      return i.editReply({content:"🎵 الآن تعمل: **"+title.slice(0,180)+"**",components:musicControls(s,i.user.id)});
+    }
+  }catch(e){
+    const msg="تعذر تنفيذ الأمر: "+String(e.message||e).slice(0,200);
+    if(i.deferred||i.replied)await i.followUp({content:msg,flags:MessageFlags.Ephemeral}).catch(()=>{});
+    else await i.reply({content:msg,flags:MessageFlags.Ephemeral}).catch(()=>{});
   }
 });
-
-client.on(Events.InteractionCreate, async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-  try {
-    if (interaction.commandName === "music") {
-      const action = interaction.options.getSubcommand();
-      if (action === "stop") {
-        stopSession(interaction.guildId);
-        return interaction.reply({ content: "⏹️ تم إيقاف الموسيقى ومغادرة الروم الصوتي.", flags: MessageFlags.Ephemeral });
-      }
-      const filename = interaction.options.getString("song");
-      const audioUrl = interaction.options.getString("url");
-      if (Boolean(filename) === Boolean(audioUrl)) {
-        return interaction.reply({ content: "حدد خياراً واحداً فقط: song أو url.", flags: MessageFlags.Ephemeral });
-      }
-      return await playSong(interaction, filename, audioUrl);
-    }
-
-    if (interaction.commandName === "talking") {
-      const group = interaction.options.getSubcommandGroup(false);
-      const action = interaction.options.getSubcommand();
-      const textChannel = interaction.channel;
-      if (!textChannel || textChannel.type !== ChannelType.GuildText) {
-        return interaction.reply({ content: "استخدم الأمر داخل قناة نصية عادية.", flags: MessageFlags.Ephemeral });
-      }
-      if (group === "voice" && action === "ai") {
-        if (!AI_API_KEY) {
-          return interaction.reply({ content: "لم أجد مفتاح AI_API_KEY في إعدادات البوت.", flags: MessageFlags.Ephemeral });
-        }
-        if (!TTS_API_KEY) {
-          return interaction.reply({ content: "أضف مفتاح TTS_API_KEY لتحويل الردود إلى صوت.", flags: MessageFlags.Ephemeral });
-        }
-        const voiceChannel = interaction.member?.voice?.channel;
-        if (!voiceChannel) {
-          return interaction.reply({ content: "ادخل روم صوتي أولاً ثم استخدم الأمر.", flags: MessageFlags.Ephemeral });
-        }
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        const connection = joinVoiceChannel({
-          channelId: voiceChannel.id, guildId: interaction.guildId,
-          adapterCreator: interaction.guild.voiceAdapterCreator, selfDeaf: true
-        });
-        try {
-          await entersState(connection, VoiceConnectionStatus.Ready, 25000);
-          stopTalking(textChannel.id);
-          stopSession(interaction.guildId);
-          const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-          const voiceSession = { connection, player, ffmpeg: null };
-          connection.subscribe(player);
-          talkingModes.set(textChannel.id, { voiceSession, voiceQueue: Promise.resolve() });
-          return interaction.editReply("🎙️ دخلت **" + voiceChannel.name + "**. اكتب رسالتك في هذه القناة النصية وسأرد كتابةً وصوتاً. لإيقافي استخدم /talking stop.");
-        } catch (error) {
-          try { connection.destroy(); } catch {}
-          throw error;
-        }
-      }
-      if (action === "stop") {
-        const stopped = stopTalking(textChannel.id);
-        return interaction.reply({ content: stopped ? "تم إيقاف مساعد الذكاء الاصطناعي ومغادرة الروم الصوتي." : "المساعد غير مفعّل في هذه القناة.", flags: MessageFlags.Ephemeral });
-      }
-      if (group === null && action === "ai") {
-        if (!AI_API_KEY) {
-          return interaction.reply({ content: "لم أجد مفتاح AI_API_KEY في إعدادات البوت.", flags: MessageFlags.Ephemeral });
-        }
-        talkingModes.set(textChannel.id, { voiceSession: null, voiceQueue: Promise.resolve() });
-        conversations.set(textChannel.id, []);
-        return interaction.reply({ content: "تم تفعيل الذكاء الاصطناعي في هذه القناة. اكتب أي رسالة وسأرد عليك هنا.", flags: MessageFlags.Ephemeral });
-      }
-    }
-  } catch (error) {
-    console.error("Command error:", error);
-    const message = "حدث خطأ: " + String(error.message || error).slice(0, 220);
-    if (interaction.deferred || interaction.replied) {
-      await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => {});
-    } else {
-      await interaction.reply({ content: message, flags: MessageFlags.Ephemeral }).catch(() => {});
-    }
-  }
-});
-
-client.on(Events.Error, error => console.error("Discord client error:", error));
 client.login(process.env.DISCORD_TOKEN);
