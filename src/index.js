@@ -36,7 +36,7 @@ function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
 
 function runYtDlp(args){
   return new Promise((resolve,reject)=>{
-    const child=spawn("python",["-m","yt_dlp",...args],{stdio:["ignore","pipe","pipe"]});
+    const child=spawn("python",["-m","yt_dlp","--js-runtimes","deno",...args],{stdio:["ignore","pipe","pipe"]});
     let stdout="",stderr="",settled=false;
     const timer=setTimeout(()=>{if(!settled){settled=true;child.kill("SIGKILL");reject(Error("انتهت مهلة استخراج الأغنية."));}},65000);
     child.stdout.on("data",chunk=>{stdout+=chunk.toString();});
@@ -202,6 +202,26 @@ function queueOnlineUpdate(guild){
   },1800));
 }
 
+function monitorVoiceConnection(connection,label){
+  connection.on("stateChange",(oldState,newState)=>{
+    if(oldState.status!==newState.status)console.log("[Voice:"+label+"]",oldState.status,"->",newState.status,newState.closeCode?"closeCode="+newState.closeCode:"");
+  });
+  connection.on("error",e=>console.error("[Voice:"+label+"]",e.message));
+  connection.on(VoiceConnectionStatus.Disconnected,()=>{
+    const state=connection.state;
+    const code=state.closeCode;
+    console.warn("[Voice:"+label+"] disconnected",code||state.reason||"unknown");
+    if(code===4014||code===4021||code===4022)return;
+    if(connection.rejoinAttempts<5){
+      setTimeout(()=>{
+        if(connection.state.status===VoiceConnectionStatus.Disconnected){
+          console.warn("[Voice:"+label+"] attempting reconnect");
+          connection.rejoin();
+        }
+      },1500);
+    }
+  });
+}
 function makeSession(guild){
   const s={
     guild,player:createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}}),
@@ -227,9 +247,15 @@ async function startMusic(s,input){
     if(!raw)throw Error("اكتب اسم أغنية أو رابطاً.");
     let target=raw,title=raw;
     if(/^(www\.|youtube\.com\/|youtu\.be\/|m\.youtube\.com\/|music\.youtube\.com\/)/i.test(target))target="https://"+target;
-    if(/open\.spotify\.com\/track\//i.test(target)){
-      let meta;try{meta=await fetch("https://open.spotify.com/oembed?url="+encodeURIComponent(target),{signal:AbortSignal.timeout(45000)});}catch(e){throw Error("تعذر الاتصال ببيانات Spotify؛ جرّب رابط YouTube أو اسم الأغنية. "+(e.name==="AbortError"?"انتهت مهلة الاتصال.":e.message));}
-      if(!meta.ok)throw Error("تعذر قراءة بيانات Spotify.");
+    if(/open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\//i.test(target)||/spotify\.link\//i.test(target)){
+      let spotifyUrl=target;
+      if(/spotify\.link\//i.test(spotifyUrl)){
+        const resolved=await fetch(spotifyUrl,{redirect:"follow",signal:AbortSignal.timeout(30000)});
+        spotifyUrl=resolved.url||spotifyUrl;
+      }
+      const canonical=spotifyUrl.replace(/\/intl-[a-z-]+(?=\/track\/)/i,"");
+      let meta;try{meta=await fetch("https://open.spotify.com/oembed?url="+encodeURIComponent(canonical),{signal:AbortSignal.timeout(45000)});}catch(e){throw Error("تعذر الاتصال ببيانات Spotify؛ تحقق من الرابط وحاول مجدداً.");}
+      if(!meta.ok)throw Error("رابط Spotify غير مدعوم أو تعذر قراءة بيانات الأغنية.");
       const data=await meta.json();
       title=(data.author_name?data.author_name+" - ":"")+(data.title||"");
       if(!title.trim())throw Error("تعذر استخراج اسم الأغنية من Spotify.");
@@ -243,7 +269,7 @@ async function startMusic(s,input){
         output=await runYtDlp(["--no-warnings","--no-playlist","--remote-components","ejs:github","-f","bestaudio/best","-g",target]);
       }catch(firstError){
         const firstDetail=String(firstError.message||firstError);
-        if(/protect our community|sign in|cookies|authentication|not a bot/i.test(firstDetail)&&/youtube\.com|youtu\\.be|ytsearch/i.test(target)){
+        if(/protect our community|sign in|cookies|authentication|not a bot/i.test(firstDetail)&&/youtube\.com|youtu\.be|ytsearch/i.test(target)){
           output=await runYtDlp(["--no-warnings","--no-playlist","--remote-components","ejs:github","--extractor-args","youtube:player_client=android","-f","bestaudio/best","-g",target]);
         }else throw firstError;
       }
@@ -256,7 +282,7 @@ async function startMusic(s,input){
     if(!/^https?:\/\//i.test(mediaUrl))throw Error("لم يتم استخراج رابط صوت صالح.");
     if(!s.connection||s.connection.state.status===VoiceConnectionStatus.Destroyed){
       s.connection=joinVoiceChannel({channelId:s.voiceChannelId,guildId:s.guild.id,adapterCreator:s.guild.voiceAdapterCreator,selfDeaf:true});
-      s.connection.on("error",e=>console.error("Voice connection:",e.message));
+      monitorVoiceConnection(s.connection,"music");
       await entersState(s.connection,VoiceConnectionStatus.Ready,25000);
       s.connection.subscribe(s.player);
     }
@@ -850,7 +876,8 @@ client.on(Events.InteractionCreate,async i=>{
         const voice=i.member?.voice?.channel;if(!voice)return i.reply({content:"ادخل روم صوتي أولاً.",flags:MessageFlags.Ephemeral});
         await i.deferReply({flags:MessageFlags.Ephemeral});
         const connection=joinVoiceChannel({channelId:voice.id,guildId:i.guildId,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:false});
-        try{await entersState(connection,VoiceConnectionStatus.Ready,25000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);const mode={voice:voiceSession,queue:Promise.resolve(),processingUsers:new Set()};talkingModes.set(channel.id,mode);listenToVoice(connection,channel,mode);return i.editReply("دخلت الروم. تكلم الآن؛ سأسمعك وأرد عليك صوتياً. يعتمد التعرف على الكلام على GROQ_API_KEY، والصوت يعمل عبر Edge TTS بدون مفتاح إضافي.");}
+        monitorVoiceConnection(connection,"talking-ai");
+        try{await entersState(connection,VoiceConnectionStatus.Ready,35000);stopTalking(channel.id);const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});const voiceSession={connection,player,ffmpeg:null};connection.subscribe(player);const mode={voice:voiceSession,queue:Promise.resolve(),processingUsers:new Set()};talkingModes.set(channel.id,mode);listenToVoice(connection,channel,mode);return i.editReply("دخلت الروم. تكلم الآن؛ سأسمعك وأرد عليك صوتياً. يعتمد التعرف على الكلام على GROQ_API_KEY، والصوت يعمل عبر Edge TTS بدون مفتاح إضافي.");}
         catch(e){try{connection.destroy()}catch{}throw e;}
       }
       talkingModes.set(channel.id,{voice:null,queue:Promise.resolve()});conversations.set(channel.id,[]);
