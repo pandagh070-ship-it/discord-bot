@@ -3,6 +3,7 @@ require("dotenv").config();
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const youtubedl = require("youtube-dl-exec");
 const {
   Client, GatewayIntentBits, Events, MessageFlags, SlashCommandBuilder
 } = require("discord.js");
@@ -35,14 +36,61 @@ function displayName(filename) {
   return path.basename(filename, path.extname(filename));
 }
 
-function isAllowedAudioUrl(value) {
+function parseSupportedUrl(value) {
   let url;
-  try { url = new URL(value); } catch { return false; }
-  if (url.protocol !== "https:" || url.username || url.password) return false;
+  try { url = new URL(value); } catch { return null; }
+  if (url.protocol !== "https:" || url.username || url.password) return null;
+
   const host = url.hostname.toLowerCase();
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":")) return false;
-  return true;
+  const youtubeHosts = new Set([
+    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"
+  ]);
+  if (youtubeHosts.has(host)) return { type: "youtube", url: url.toString() };
+
+  if (host === "open.spotify.com" && /^\/(?:intl-[^/]+\/)?track\/[A-Za-z0-9]+\/?$/.test(url.pathname)) {
+    return { type: "spotify", url: url.toString() };
+  }
+
+  return null;
+}
+
+async function resolveMediaUrl(inputUrl) {
+  const parsed = parseSupportedUrl(inputUrl);
+  if (!parsed) {
+    throw new Error("الرابط غير مدعوم. أرسل رابط أغنية من YouTube أو Spotify.");
+  }
+
+  let target = parsed.url;
+  let trackLabel = "";
+
+  if (parsed.type === "spotify") {
+    const response = await fetch(
+      "https://open.spotify.com/oembed?url=" + encodeURIComponent(parsed.url),
+      { signal: AbortSignal.timeout(12_000) }
+    );
+    if (!response.ok) throw new Error("تعذر قراءة بيانات رابط Spotify.");
+    const metadata = await response.json();
+    if (!metadata.title || !metadata.author_name) {
+      throw new Error("لم أستطع استخراج اسم الأغنية والفنان من Spotify.");
+    }
+    trackLabel = metadata.author_name + " - " + metadata.title;
+    target = "ytsearch1:" + trackLabel;
+  }
+
+  const output = await youtubedl(target, {
+    getUrl: true,
+    format: "bestaudio/best",
+    noPlaylist: true,
+    quiet: true,
+    noWarnings: true,
+    socketTimeout: 20
+  });
+  const mediaUrl = String(output).trim().split(/\r?\n/)[0];
+  if (!mediaUrl || !/^https?:\/\//i.test(mediaUrl)) {
+    throw new Error("لم أتمكن من استخراج رابط الصوت من المصدر.");
+  }
+
+  return { mediaUrl, trackLabel };
 }
 
 function destroySession(session) {
@@ -69,22 +117,16 @@ async function playSong(interaction, filename, audioUrl) {
   }
 
   const remote = Boolean(audioUrl);
-  if (remote && !isAllowedAudioUrl(audioUrl)) {
-    return interaction.reply({
-      content: "أرسل رابط HTTPS مباشر لملف صوتي. روابط صفحات YouTube/TikTok ليست روابط صوت مباشرة.",
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
   const songs = listSongs();
   if (!remote && !songs.includes(filename)) {
     return interaction.reply({
-      content: "الأغنية غير موجودة في مجلد songs. حدّث قائمة الملفات ثم جرّب مجدداً.",
+      content: "الأغنية غير موجودة في مجلد songs.",
       flags: MessageFlags.Ephemeral
     });
   }
 
-  const filePath = remote ? null : path.join(songsDir, filename);
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
     guildId: interaction.guildId,
@@ -95,6 +137,15 @@ async function playSong(interaction, filename, audioUrl) {
 
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+
+    let mediaUrl = null;
+    let trackLabel = "";
+    if (remote) {
+      const resolved = await resolveMediaUrl(audioUrl);
+      mediaUrl = resolved.mediaUrl;
+      trackLabel = resolved.trackLabel;
+    }
+
     const player = createAudioPlayer({
       behaviors: { noSubscriber: NoSubscriberBehavior.Pause }
     });
@@ -103,12 +154,12 @@ async function playSong(interaction, filename, audioUrl) {
     if (remote) {
       ffmpeg = spawn(ffmpegPath, [
         "-nostdin", "-hide_banner", "-loglevel", "error", "-re",
-        "-i", audioUrl, "-vn", "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"
+        "-i", mediaUrl, "-vn", "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"
       ], { stdio: ["ignore", "pipe", "pipe"] });
       ffmpeg.stderr.on("data", chunk => console.error("FFmpeg:", String(chunk).slice(0, 300)));
       resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw });
     } else {
-      resource = createAudioResource(filePath);
+      resource = createAudioResource(path.join(songsDir, filename));
     }
 
     const previous = sessions.get(interaction.guildId);
@@ -143,10 +194,8 @@ async function playSong(interaction, filename, audioUrl) {
       });
     }
 
-    return interaction.reply({
-      content: "🎵 الآن تعمل: **" + (remote ? "رابط صوت مباشر" : displayName(filename)) + "**",
-      flags: MessageFlags.Ephemeral
-    });
+    const label = remote ? (trackLabel || "YouTube") : displayName(filename);
+    return interaction.editReply("🎵 الآن تعمل: **" + label.slice(0, 180) + "**");
   } catch (error) {
     if (ffmpeg && !ffmpeg.killed) ffmpeg.kill("SIGKILL");
     try { connection.destroy(); } catch {}
@@ -160,7 +209,7 @@ const commands = [
     .setDescription("تشغيل الموسيقى")
     .addSubcommand(sub =>
       sub.setName("play")
-        .setDescription("تشغيل ملف محفوظ أو رابط صوت مباشر")
+        .setDescription("تشغيل أغنية من ملف أو YouTube أو Spotify")
         .addStringOption(option => {
           option.setName("song").setDescription("أغنية محفوظة في البوت").setRequired(false);
           for (const song of listSongs().slice(0, 25)) {
@@ -170,7 +219,7 @@ const commands = [
         })
         .addStringOption(option =>
           option.setName("url")
-            .setDescription("رابط HTTPS مباشر لملف صوتي")
+            .setDescription("رابط أغنية YouTube أو Spotify")
             .setRequired(false)
         )
     )
@@ -207,8 +256,7 @@ client.on(Events.InteractionCreate, async interaction => {
     return await playSong(interaction, filename, audioUrl);
   } catch (error) {
     console.error("Music command error:", error);
-    const message = "تعذر تشغيل الأغنية. تأكد من أن الرابط مباشر وأن البوت يملك صلاحيات Connect وSpeak. (" +
-      String(error.message || error).slice(0, 180) + ")";
+    const message = "تعذر تشغيل الأغنية: " + String(error.message || error).slice(0, 180);
     if (interaction.deferred || interaction.replied) {
       await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => {});
     } else {
