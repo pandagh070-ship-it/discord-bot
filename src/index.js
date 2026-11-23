@@ -845,6 +845,7 @@ async function codsInspectServer(guild){
 async function codsPrepareAction(guild,name,args,requesterId){
   const requester=guild.members.cache.get(requesterId)||await guild.members.fetch(requesterId);
   if(name==="create_text_channel"){
+    if(!requester.permissions.has(PermissionFlagsBits.ManageChannels)||!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels))throw Error("تحتاج أنت والبوت صلاحية إدارة القنوات.");
     const channelName=String(args.name||"").trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06FF_-]/g,"-").replace(/-+/g,"-").slice(0,90);
     if(!channelName)throw Error("اسم الروم غير صالح.");
     let parent=null;
@@ -906,7 +907,7 @@ async function codsExecuteAction(guild,action){
     await c.setTopic(a.topic||null,"Cods AI action confirmed");return "تم تحديث وصف #"+c.name;
   }
   if(action.name==="create_role"){
-    const role=await guild.roles.create({name:a.name,color:a.color||undefined,permissions:[],reason:"Cods AI action confirmed"});return "تم إنشاء الرتبة "+role.toString();
+    const role=await guild.roles.create({name:a.name,color:a.color||undefined,permissions:[],reason:"Cods AI action confirmed"});return "تم إنشاء الرتبة: **"+role.name+"**";
   }
   if(action.name==="delete_recent_messages"){
     const c=await guild.channels.fetch(a.channelId);if(!c?.messages)throw Error("الروم غير متاح.");
@@ -1060,12 +1061,12 @@ client.on(Events.MessageCreate,async message=>{
     if(!result.actions.length)return message.reply({content:result.answer,allowedMentions:{parse:[]}});
     const key=Date.now().toString(36);
     codsPending.set(key,{guildId:message.guild.id,userId:message.author.id,actions:result.actions,createdAt:Date.now()});
-    const preview=result.actions.map((a,i)=>(i+1)+". "+a.preview).join("\n\n");
+    const preview=result.actions.map((a,i)=>(i+1)+". "+a.preview).join("\n\n").slice(0,1450);
     const row=new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId("cods:yes:"+message.guild.id+":"+message.author.id+":"+key).setLabel("تأكيد التنفيذ").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId("cods:no:"+message.guild.id+":"+message.author.id+":"+key).setLabel("إلغاء").setStyle(ButtonStyle.Secondary)
     );
-    await message.reply({content:result.answer+"\n\n"+preview+"\n\nهل توافق على تنفيذ هذه التغييرات؟",components:[row],allowedMentions:{parse:[]}});
+    await message.reply({content:String(result.answer).slice(0,350)+"\n\n"+preview+"\n\nهل توافق على تنفيذ هذه التغييرات؟",components:[row],allowedMentions:{parse:[]}});
   }catch(e){
     console.error("Cods AI:",e);
     await message.reply({content:"تعذر تنفيذ الطلب: "+String(e.message||e).slice(0,250),allowedMentions:{parse:[]}}).catch(()=>{});
