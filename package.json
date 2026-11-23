@@ -1,6 +1,6 @@
 {
   "name": "eto-discord-bot",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -14,6 +14,7 @@
     "discord.js": "^14.22.1",
     "dotenv": "^16.6.1",
     "ffmpeg-static": "^5.2.0",
-    "opusscript": "^0.0.8"
+    "opusscript": "^0.0.8",
+    "youtube-dl-exec": "^3.1.19"
   }
 }
