@@ -3,6 +3,8 @@ const {REST,Routes,SlashCommandBuilder,ChannelType}=require("discord.js");
 
 const commands=[
   new SlashCommandBuilder()
+    .setName("cods").setDescription("إنشاء غرفة إدارة السيرفر بالذكاء الاصطناعي"),
+  new SlashCommandBuilder()
     .setName("music").setDescription("تشغيل الموسيقى")
     .addSubcommand(s=>s.setName("play").setDescription("تشغيل أغنية بالاسم أو الرابط")
       .addStringOption(o=>o.setName("song").setDescription("اسم الأغنية أو رابط YouTube/Spotify").setRequired(true)))
