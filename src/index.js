@@ -28,7 +28,7 @@ const hasExplicitAIKey=Boolean(process.env.AI_API_KEY||process.env.AI_TOKEN||pro
 const defaultAIBase=process.env.AI_BASE_URL?"":process.env.OPENROUTER_API_KEY&&!process.env.AI_API_KEY&&!process.env.AI_TOKEN&&!process.env.OPENAI_API_KEY?"https://openrouter.ai/api/v1":process.env.GROQ_API_KEY&&!hasExplicitAIKey?"https://api.groq.com/openai/v1":"https://api.openai.com/v1";
 const AI_BASE_URL=trimTrailingSlash(process.env.AI_BASE_URL||defaultAIBase);
 const AI_MODEL=process.env.AI_MODEL||(AI_BASE_URL==="https://api.groq.com/openai/v1"?"openai/gpt-oss-20b":"gpt-4o-mini");
-const TTS_API_KEY=process.env.TTS_API_KEY||AI_API_KEY;
+const TTS_API_KEY=process.env.TTS_API_KEY||(AI_BASE_URL==="https://api.groq.com/openai/v1"?"":AI_API_KEY);
 const TTS_BASE_URL=trimTrailingSlash(process.env.TTS_BASE_URL||"https://api.openai.com/v1");
 const TTS_MODEL=process.env.TTS_MODEL||"gpt-4o-mini-tts";
 const TTS_VOICE=process.env.TTS_VOICE||"alloy";
