@@ -2,6 +2,12 @@ require("dotenv").config();
 const {REST,Routes,SlashCommandBuilder,ChannelType}=require("discord.js");
 
 const commands=[
+  new SlashCommandBuilder()
+    .setName("nuclearmag").setDescription("إرسال رسم نووي تجريبي في الخاص")
+    .addUserOption(o=>o.setName("member").setDescription("العضو المستهدف").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("nuclearvoice").setDescription("تشغيل مؤثر إنذار وانفجار سينمائي في روم فويس")
+    .addChannelOption(o=>o.setName("room").setDescription("الروم الصوتي").addChannelTypes(ChannelType.GuildVoice).setRequired(true)),
   new SlashCommandBuilder().setName("alive").setDescription("تشغيل وضع Live المستقل"),
   new SlashCommandBuilder().setName("stoplive").setDescription("إيقاف وضع Live"),
   new SlashCommandBuilder()
