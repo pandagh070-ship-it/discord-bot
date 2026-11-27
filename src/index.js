@@ -447,7 +447,8 @@ client.on(Events.MessageCreate,async message=>{
   const channel=message.channel;
   if(!channel.isTextBased()||channel.isThread?.())return;
   const key=message.guild.id+":"+message.channelId,now=Date.now();
-  const directPing=message.mentions.has(client.user);\n  if(!directPing&&now-(liveReplyTimes.get(key)||0)<4000)return;
+  const directPing=message.mentions.has(client.user);
+  if(!directPing&&now-(liveReplyTimes.get(key)||0)<4000)return;
   liveReplyTimes.set(key,now);
   try{
     const answer=await askLiveAI(message);
