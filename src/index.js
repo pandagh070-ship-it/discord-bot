@@ -1203,7 +1203,8 @@ client.on(Events.InteractionCreate,async i=>{
       if(!AI_API_KEY)return i.reply({content:"مفتاح الذكاء الاصطناعي غير مضبوط.",flags:MessageFlags.Ephemeral});
       if(liveGuilds.has(i.guildId))return i.reply({content:"وضع Live مفعّل بالفعل.",flags:MessageFlags.Ephemeral});
       liveGuilds.set(i.guildId,{startedBy:i.user.id,startedAt:Date.now(),noticeChannelId:i.channelId});
-      await i.reply({content:"تم تشغيل عبد حميد. سأتفاعل في القنوات النصية، وأنضم للروم الصوتي النشط وأرد على الكلام بعد التقاطه. أنا بوت، ولن أحفظ التسجيلات. للإيقاف استخدم /stoplive.",flags:MessageFlags.Ephemeral});\n      await i.guild.members.me.setNickname("عبد حميد").catch(e=>console.warn("[Alive] nickname:",e.message));
+      await i.reply({content:"تم تشغيل عبد حميد. سأتفاعل في القنوات النصية، وأنضم للروم الصوتي النشط وأرد على الكلام بعد التقاطه. أنا بوت، ولن أحفظ التسجيلات. للإيقاف استخدم /stoplive.",flags:MessageFlags.Ephemeral});
+      await i.guild.members.me.setNickname("عبد حميد").catch(e=>console.warn("[Alive] nickname:",e.message));
       await announceLive(i.guild,"تم تشغيل عبد حميد بواسطة مشرف. البوت قد يشارك في المحادثات النصية وينضم للروم الصوتي النشط؛ الصوت يُحلّل مباشرة للرد دون حفظ التسجيلات.");
       const occupied=i.guild.channels.cache.find(c=>c.isVoiceBased()&&[...c.members.values()].some(m=>!m.user.bot));
       if(occupied)startLiveVoice(i.guild,occupied).catch(e=>console.error("[Alive] voice:",e.message));
