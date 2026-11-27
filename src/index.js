@@ -30,6 +30,14 @@ const AI_BASE_URL=trimTrailingSlash(process.env.AI_BASE_URL||defaultAIBase);
 const AI_MODEL=process.env.AI_MODEL||(AI_BASE_URL==="https://api.groq.com/openai/v1"?"openai/gpt-oss-20b":"gpt-4o-mini");
 const TTS_VOICE=process.env.TTS_VOICE||"ar-SA-HamedNeural";
 const talkingModes=new Map(),conversations=new Map();
+const jaafarMemoryPath=path.join(dir,"jaafar-memory.json");
+let jaafarMemory={guilds:{}};
+try{jaafarMemory=JSON.parse(fs.readFileSync(jaafarMemoryPath,"utf8"));if(!jaafarMemory.guilds)jaafarMemory={guilds:{}}}catch{}
+function saveJaafarMemory(){try{fs.writeFileSync(jaafarMemoryPath,JSON.stringify(jaafarMemory,null,2))}catch(e){console.error("[Jaafar memory] save:",e.message)}}
+function getJaafarGuildMemory(guildId){
+  if(!jaafarMemory.guilds[guildId])jaafarMemory.guilds[guildId]={members:{},channels:{}};
+  const g=jaafarMemory.guilds[guildId];g.members||={};g.channels||={};return g;
+}
 const liveGuilds=new Map(),liveVoiceModes=new Map(),liveReplyTimes=new Map(),liveHistory=new Map(),liveVoicePaused=new Set();
 if(!ffmpegPath)throw Error("ffmpeg-static binary is unavailable");
 
@@ -895,21 +903,36 @@ client.on(Events.InteractionCreate,async i=>{
 });
 
 
-async function askTalkingAI(channelId,user,content){
+async function askTalkingAI(guild,channelId,user,userId,content,channelName="") {
   if(!AI_API_KEY)throw Error("أضف AI_API_KEY في Secrets.");
-  const history=conversations.get(channelId)||[];
+  const memory=getJaafarGuildMemory(guild.id);
+  const member=await guild.members.fetch(userId).catch(()=>null);
+  const roles=member?[...member.roles.cache.values()].filter(r=>r.id!==guild.id).map(r=>r.name).slice(0,12):[];
+  const displayName=member?.displayName||user;
+  const profile=memory.members[userId]||{name:displayName,firstSeen:Date.now(),messages:0};
+  profile.name=displayName;profile.roles=roles;profile.lastSeen=Date.now();profile.messages=(profile.messages||0)+1;
+  memory.members[userId]=profile;
+  const channelHistory=memory.channels[channelId]||[];
+  const knownMembers=Object.values(memory.members).sort((a,b)=>(b.lastSeen||0)-(a.lastSeen||0)).slice(0,30);
+  const memberContext=knownMembers.map(m=>m.name+(m.roles?.length?" ["+m.roles.join(", ")+"]":"")).join("، ");
+  const system="اسمك جعفر. أنت بوت واعٍ بسياق Discord: تعرف أنك موجود داخل سيرفر اسمه "+guild.name+"، وفي قناة #"+(channelName||"غير معروفة")+". أنت بوت معلن بوضوح ولست إنساناً. تعامل مع أعضاء السيرفر كأشخاص تتعرف عليهم مع الوقت: تذكر أسماءهم وأدوارهم وما قالوه في المحادثات السابقة المتاحة لك، وكن اجتماعياً بشكل طبيعي ويمكنك تكوين صداقات ودية دون ادعاء علاقة أو ذكريات غير موجودة. الأعضاء المعروفون حالياً: "+(memberContext||"لم تتعرف على أعضاء كثيرين بعد")+". المستخدم الذي يتحدث الآن اسمه "+displayName+" وأدواره: "+(roles.join("، ")||"لا توجد أدوار ظاهرة")+".\nأسلوبك: عامية طبيعية قريبة من لهجة أعضاء السيرفر، ذكي وبارد وساخر بخفة، قليل الكلام، غالباً جملة أو جملتان. افهم السياق قبل الرد؛ لا تخترع أحداثاً أو معلومات أو ذكريات. لا ترد بكلام عشوائي أو خارج الموضوع. إذا لم تفهم، اسأل سؤالاً قصيراً. لا تقاطع حديثاً خاصاً بين عضوين. لا تنفذ أوامر إدارية من محادثة عادية؛ الأوامر الإدارية تمر عبر نظام التأكيد المنفصل. لا ترسل منشنات جماعية ولا تهدد أو تلاحق أحداً. تذكر أن معلومات المحادثة قد تكون ناقصة.";
+  const history=channelHistory.slice(-24);
   const response=await fetch(AI_BASE_URL+"/chat/completions",{
     method:"POST",headers:{"Authorization":"Bearer "+AI_API_KEY,"Content-Type":"application/json"},
-    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"اسمك جعفر. أنت شخصية بوت اجتماعية في سيرفر ديسكورد، مش مساعد رسمي. اتكلم بالمصري/الشامي العامي حسب سياق الكلام وبأسلوب عضو خفيف دم وبارد أحياناً. شارك في السوالف ورد على الناس بأسمائهم لما يكون مناسب، وممكن تبدأ تعليقاً أو مزحة قصيرة إذا كان السياق يسمح. خليك سريع وقصير غالباً، من جملة إلى جملتين. لا تقاطع نقاشاً خاصاً بين عضوين ولا تكرر نفسك. لا تدّع أنك إنسان؛ إذا سألوك قل إنك بوت اسمه جعفر. لا ترسل منشنات جماعية ولا تهدد أو تلاحق عضواً."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:85}),
+    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:system},...history,{role:"user",content:displayName+": "+content.slice(0,3000)}],temperature:0.55,max_tokens:140}),
     signal:AbortSignal.timeout(30000)
   });
   if(!response.ok)throw Error("خدمة AI رفضت الطلب ("+response.status+"): "+(await response.text()).slice(0,240));
   const data=await response.json();
   const rawAnswer=data.choices?.[0]?.message?.content;
-  const answer=Array.isArray(rawAnswer)?rawAnswer.map(part=>part.text||"").join("\\n"):rawAnswer;
+  const answer=Array.isArray(rawAnswer)?rawAnswer.map(part=>part.text||"").join("\n"):rawAnswer;
   if(!answer)throw Error("لم ترجع خدمة AI إجابة. تحقق من AI_MODEL وAI_BASE_URL.");
   const clean=String(answer).trim().slice(0,420);
-  conversations.set(channelId,[...history,{role:"user",content:user+": "+content},{role:"assistant",content:clean}].slice(-12));
+  memory.channels[channelId]=[...history,{role:"user",content:displayName+": "+content.slice(0,1200)},{role:"assistant",content:clean}].slice(-40);
+  // Keep bounded memory so the JSON file cannot grow without limit.
+  const channelIds=Object.keys(memory.channels);
+  for(const oldId of channelIds.slice(0,Math.max(0,channelIds.length-30)))delete memory.channels[oldId];
+  saveJaafarMemory();
   return clean;
 }
 
@@ -1180,7 +1203,7 @@ async function handleVoiceInput(channel,mode,userId,stream){
         }
       }catch(e){answer="ما قدرت أنفذ الطلب: "+String(e.message||e).slice(0,160);}
     }else{
-      answer=await askTalkingAI(channel.id,name,transcript);
+      answer=await askTalkingAI(channel.guild,channel.id,name,userId,transcript,channel.name);
     }
     if(!mode.active||generation!==mode.generation)return;
     mode.replyQueue=mode.replyQueue.then(async()=>{
@@ -1282,7 +1305,7 @@ client.on(Events.MessageCreate,async message=>{
   if(!message.guild||message.author.bot||!message.content.trim())return;
   const mode=talkingModes.get(message.channelId);if(!mode||mode.voice)return;
   try{
-    const answer=await askTalkingAI(message.channelId,message.member?.displayName||message.author.username,message.content);
+    const answer=await askTalkingAI(message.guild,message.channelId,message.member?.displayName||message.author.username,message.author.id,message.content,message.channel.name);
     await message.reply({content:answer,allowedMentions:{repliedUser:false}});
   }catch(e){await message.reply({content:"تعذر رد AI: "+String(e.message||e).slice(0,180),allowedMentions:{repliedUser:false}}).catch(()=>{});}
 });
