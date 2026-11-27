@@ -381,7 +381,8 @@ async function startLiveVoice(guild,voice,force=false,selfMute=false){
     liveVoiceModes.set(guild.id,{channelId:voice.id,mode,session});
     listenToVoice(connection,voice,mode);
     await announceLive(guild,"دخلت الروم الصوتي **"+voice.name+"** بوضع Live. المحادثة الصوتية تُحلّل مباشرة للرد، ولا أحفظ التسجيلات.");
-  }catch(e){try{connection.destroy()}catch{};console.error("[Alive] voice join:",e.message)}
+    return true;
+  }catch(e){try{connection.destroy()}catch{};console.error("[Alive] voice join:",e.message);return false}
 }
 function stopLiveGuild(guildId){
   liveGuilds.delete(guildId);liveVoicePaused.delete(guildId);liveHistory.clear();
