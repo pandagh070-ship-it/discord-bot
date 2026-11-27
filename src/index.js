@@ -30,7 +30,7 @@ const AI_BASE_URL=trimTrailingSlash(process.env.AI_BASE_URL||defaultAIBase);
 const AI_MODEL=process.env.AI_MODEL||(AI_BASE_URL==="https://api.groq.com/openai/v1"?"openai/gpt-oss-20b":"gpt-4o-mini");
 const TTS_VOICE=process.env.TTS_VOICE||"ar-SA-HamedNeural";
 const talkingModes=new Map(),conversations=new Map();
-const liveGuilds=new Map(),liveVoiceModes=new Map(),liveReplyTimes=new Map(),liveHistory=new Map();
+const liveGuilds=new Map(),liveVoiceModes=new Map(),liveReplyTimes=new Map(),liveHistory=new Map(),liveVoicePaused=new Set();
 if(!ffmpegPath)throw Error("ffmpeg-static binary is unavailable");
 
 function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
@@ -364,11 +364,12 @@ async function announceLive(guild,text){
     guild.channels.cache.find(c=>c.type===ChannelType.GuildText&&c.permissionsFor(client.user)?.has(PermissionFlagsBits.SendMessages));
   if(channel)await channel.send({content:text,allowedMentions:{parse:[]} }).catch(()=>{});
 }
-async function startLiveVoice(guild,voice){
-  if(!liveGuilds.has(guild.id)||liveVoiceModes.has(guild.id)||!voice?.isVoiceBased())return;
-  if(!voice.permissionsFor(client.user)?.has([PermissionFlagsBits.Connect,PermissionFlagsBits.Speak]))return;
-  if([...voice.members.values()].filter(m=>!m.user.bot).length===0)return;
-  const connection=joinVoiceChannel({channelId:voice.id,guildId:guild.id,adapterCreator:guild.voiceAdapterCreator,selfDeaf:false});
+async function startLiveVoice(guild,voice,force=false,selfMute=false){
+  if(!liveGuilds.has(guild.id)||liveVoiceModes.has(guild.id)||!voice?.isVoiceBased())return false;
+  if(!voice.permissionsFor(client.user)?.has([PermissionFlagsBits.Connect,PermissionFlagsBits.Speak]))return false;
+  if(!force&&[...voice.members.values()].filter(m=>!m.user.bot).length===0)return false;
+  liveVoicePaused.delete(guild.id);
+  const connection=joinVoiceChannel({channelId:voice.id,guildId:guild.id,adapterCreator:guild.voiceAdapterCreator,selfDeaf:false,selfMute});
   monitorVoiceConnection(connection,"alive-"+guild.id);
   try{
     await entersState(connection,VoiceConnectionStatus.Ready,25000);
@@ -383,7 +384,7 @@ async function startLiveVoice(guild,voice){
   }catch(e){try{connection.destroy()}catch{};console.error("[Alive] voice join:",e.message)}
 }
 function stopLiveGuild(guildId){
-  liveGuilds.delete(guildId);liveHistory.clear();
+  liveGuilds.delete(guildId);liveVoicePaused.delete(guildId);liveHistory.clear();
   const active=liveVoiceModes.get(guildId);
   if(active){liveVoiceModes.delete(guildId);interruptTalkingSpeech(active.mode);try{active.session.connection.destroy()}catch{}}
   for(const key of [...liveReplyTimes.keys()])if(key.startsWith(guildId+":"))liveReplyTimes.delete(key);
@@ -423,7 +424,7 @@ client.on(Events.VoiceStateUpdate,async(oldState,newState)=>{
         const next=guild.channels.cache.find(c=>c.isVoiceBased()&&[...c.members.values()].some(m=>!m.user.bot));
         if(next)startLiveVoice(guild,next).catch(e=>console.error("[Alive] voice:",e.message));
       }
-    }else if(newState.channel&&[...newState.channel.members.values()].some(m=>!m.user.bot)){
+    }else if(!liveVoicePaused.has(guild.id)&&newState.channel&&[...newState.channel.members.values()].some(m=>!m.user.bot)){
       startLiveVoice(guild,newState.channel).catch(e=>console.error("[Alive] voice:",e.message));
     }
   }
@@ -1088,6 +1089,60 @@ function interruptTalkingSpeech(mode){
   }
   return mode.generation;
 }
+
+function normalizeJaafarText(value){
+  return String(value||"").toLowerCase().normalize("NFD").replace(/[\\u064B-\\u065F\\u0670]/g,"").replace(/[أإآ]/g,"ا").replace(/ة/g,"ه").replace(/ى/g,"ي").replace(/[^\\p{L}\\p{N}# ]/gu," ").replace(/\\s+/g," ").trim();
+}
+function findJaafarChannel(guild,name,voice=false){
+  const wanted=normalizeJaafarText(name).replace(/^# ?/,"").trim();
+  if(!wanted)return null;
+  const candidates=[...guild.channels.cache.values()].filter(c=>voice?c.isVoiceBased():c.type===ChannelType.GuildText);
+  return candidates.find(c=>normalizeJaafarText(c.name)===wanted)||candidates.find(c=>normalizeJaafarText(c.name).includes(wanted))||null;
+}
+async function handleJaafarVoiceCommand(guild,member,transcript,active){
+  if(!member?.permissions.has(PermissionFlagsBits.ManageGuild))return null;
+  const raw=String(transcript||"").replace(/جعفر/gi,"").trim();
+  const t=normalizeJaafarText(raw);
+  if(/^(حط|اعمل|سوي|شغل)? ?(ميوت|كتم الصوت|اكتم نفسك)$/.test(t)||t.includes("حط ميوت")||t.includes("اعمل ميوت")){
+    const live=liveVoiceModes.get(guild.id);
+    if(!live)return "أنا لست داخل مكالمة حالياً.";
+    live.session.connection.rejoin({...live.session.connection.joinConfig,selfMute:true,selfDeaf:false});
+    return "تم تفعيل الميوت.";
+  }
+  if(t.includes("فك الميوت")||t.includes("الغ الميوت")||t.includes("الغاء الميوت")||t.includes("افتح المايك")){
+    const live=liveVoiceModes.get(guild.id);
+    if(!live)return "أنا لست داخل مكالمة حالياً.";
+    live.session.connection.rejoin({...live.session.connection.joinConfig,selfMute:false,selfDeaf:false});
+    return "تم إلغاء الميوت.";
+  }
+  if(t.includes("اخرج من المكالمه")||t.includes("اطلع من المكالمه")||t.includes("غادر المكالمه")||t.includes("اخرج من الفويس")||t==="اطلع"){
+    const live=liveVoiceModes.get(guild.id);
+    if(live){liveVoiceModes.delete(guild.id);interruptTalkingSpeech(live.mode);try{live.session.connection.destroy()}catch{}}
+    liveVoicePaused.add(guild.id);
+    return "خرجت من المكالمة، ولن أعود تلقائياً حتى تطلب مني الدخول.";
+  }
+  const joinMatch=raw.match(/(?:ادخل|انضم الى|روح الى|انتقل الى)\\s+(?:فويس|روم صوتي|القناه الصوتيه)\\s+(.+)/i);
+  if(joinMatch){
+    const target=findJaafarChannel(guild,joinMatch[1],true);
+    if(!target)return "لم أجد روم فويس بهذا الاسم.";
+    const current=liveVoiceModes.get(guild.id);
+    if(current){liveVoiceModes.delete(guild.id);interruptTalkingSpeech(current.mode);try{current.session.connection.destroy()}catch{}}
+    const joined=await startLiveVoice(guild,target,true,false);
+    return joined===false?"لم أستطع دخول الروم. تأكد من صلاحياتي Connect وSpeak.":"دخلت فويس "+target.name+".";
+  }
+  const sendMatch=raw.match(/(?:ارسل|اكتب|قل|قول)\\s+(?:رساله|رسالة)\\s+(?:في|ب)\\s+(?:روم|قناه|قناة)\\s+(.+?)\\s+(?:تقول|محتواها|النص)\\s+(.+)/i);
+  if(sendMatch){
+    const target=findJaafarChannel(guild,sendMatch[1],false);
+    if(!target)return "لم أجد الروم النصي المطلوب.";
+    if(!target.permissionsFor(client.user)?.has(PermissionFlagsBits.SendMessages))return "ليس لدي صلاحية الكتابة في هذا الروم.";
+    const content=sendMatch[2].replace(/@everyone|@here/g,"").trim().slice(0,1800);
+    if(!content)return "ما الرسالة التي تريدني أن أرسلها؟";
+    await target.send({content,allowedMentions:{parse:[]}});
+    return "أرسلت رسالتك في روم "+target.name+".";
+  }
+  return null;
+}
+
 async function handleVoiceInput(channel,mode,userId,stream){
   if(mode.capturingUsers.has(userId)){stream.destroy();return;}
   mode.capturingUsers.add(userId);
@@ -1113,12 +1168,15 @@ async function handleVoiceInput(channel,mode,userId,stream){
     let answer;
     if(/جعفر/i.test(transcript)&&member?.permissions.has(PermissionFlagsBits.ManageGuild)){
       try{
-        const result=await codsAsk(channel.guild,userId,transcript.replace(/جعفر/g,"").trim());
-        if(result.actions.length){
-          const target=channel.guild.systemChannel?.isTextBased()?channel.guild.systemChannel:channel.guild.channels.cache.find(c=>c.type===ChannelType.GuildText&&c.permissionsFor(client.user)?.has(PermissionFlagsBits.SendMessages));
-          if(target)await sendCodsActionPreview(target,channel.guild,userId,result);
-          answer="جهزت طلبك. أرسلت التغييرات في القناة النصية؛ أكدها إذا كانت صحيحة.";
-        }else answer=result.answer;
+        answer=await handleJaafarVoiceCommand(channel.guild,member,transcript,mode);
+        if(answer===null){
+          const result=await codsAsk(channel.guild,userId,transcript.replace(/جعفر/g,"").trim());
+          if(result.actions.length){
+            const target=channel.guild.systemChannel?.isTextBased()?channel.guild.systemChannel:channel.guild.channels.cache.find(c=>c.type===ChannelType.GuildText&&c.permissionsFor(client.user)?.has(PermissionFlagsBits.SendMessages));
+            if(target)await sendCodsActionPreview(target,channel.guild,userId,result);
+            answer="جهزت التغييرات وأرسلتها في القناة النصية للموافقة.";
+          }else answer=result.answer;
+        }
       }catch(e){answer="ما قدرت أنفذ الطلب: "+String(e.message||e).slice(0,160);}
     }else{
       answer=await askTalkingAI(channel.id,name,transcript);
