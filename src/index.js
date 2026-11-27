@@ -1091,7 +1091,7 @@ function interruptTalkingSpeech(mode){
 }
 
 function normalizeJaafarText(value){
-  return String(value||"").toLowerCase().normalize("NFD").replace(/[\\u064B-\\u065F\\u0670]/g,"").replace(/[أإآ]/g,"ا").replace(/ة/g,"ه").replace(/ى/g,"ي").replace(/[^\\p{L}\\p{N}# ]/gu," ").replace(/\\s+/g," ").trim();
+  return String(value||"").toLowerCase().normalize("NFD").replace(/[\u064B-\u065F\u0670]/g,"").replace(/[أإآ]/g,"ا").replace(/ة/g,"ه").replace(/ى/g,"ي").replace(/[^\p{L}\p{N}# ]/gu," ").replace(/\s+/g," ").trim();
 }
 function findJaafarChannel(guild,name,voice=false){
   const wanted=normalizeJaafarText(name).replace(/^# ?/,"").trim();
@@ -1121,7 +1121,7 @@ async function handleJaafarVoiceCommand(guild,member,transcript,active){
     liveVoicePaused.add(guild.id);
     return "خرجت من المكالمة، ولن أعود تلقائياً حتى تطلب مني الدخول.";
   }
-  const joinMatch=raw.match(/(?:ادخل|انضم الى|روح الى|انتقل الى)\\s+(?:فويس|روم صوتي|القناه الصوتيه)\\s+(.+)/i);
+  const joinMatch=raw.match(/(?:ادخل|انضم الى|روح الى|انتقل الى)\s+(?:فويس|روم صوتي|القناه الصوتيه)\s+(.+)/i);
   if(joinMatch){
     const target=findJaafarChannel(guild,joinMatch[1],true);
     if(!target)return "لم أجد روم فويس بهذا الاسم.";
@@ -1130,7 +1130,7 @@ async function handleJaafarVoiceCommand(guild,member,transcript,active){
     const joined=await startLiveVoice(guild,target,true,false);
     return joined===false?"لم أستطع دخول الروم. تأكد من صلاحياتي Connect وSpeak.":"دخلت فويس "+target.name+".";
   }
-  const sendMatch=raw.match(/(?:ارسل|اكتب|قل|قول)\\s+(?:رساله|رسالة)\\s+(?:في|ب)\\s+(?:روم|قناه|قناة)\\s+(.+?)\\s+(?:تقول|محتواها|النص)\\s+(.+)/i);
+  const sendMatch=raw.match(/(?:ارسل|اكتب|قل|قول)\s+(?:رساله|رسالة)\s+(?:في|ب)\s+(?:روم|قناه|قناة)\s+(.+?)\s+(?:تقول|محتواها|النص)\s+(.+)/i);
   if(sendMatch){
     const target=findJaafarChannel(guild,sendMatch[1],false);
     if(!target)return "لم أجد الروم النصي المطلوب.";
