@@ -447,7 +447,7 @@ client.on(Events.MessageCreate,async message=>{
   const channel=message.channel;
   if(!channel.isTextBased()||channel.isThread?.())return;
   const key=message.guild.id+":"+message.channelId,now=Date.now();
-  if(now-(liveReplyTimes.get(key)||0)<12000)return;
+  const directPing=message.mentions.has(client.user);\n  if(!directPing&&now-(liveReplyTimes.get(key)||0)<4000)return;
   liveReplyTimes.set(key,now);
   try{
     const answer=await askLiveAI(message);
@@ -889,7 +889,7 @@ async function askTalkingAI(channelId,user,content){
   const history=conversations.get(channelId)||[];
   const response=await fetch(AI_BASE_URL+"/chat/completions",{
     method:"POST",headers:{"Authorization":"Bearer "+AI_API_KEY,"Content-Type":"application/json"},
-    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"أنت عضو طبيعي في سيرفر ديسكورد، مش مساعد ولا خدمة عملاء. اتكلم بالمصري العامي وبأسلوب صاحب قاعد مع أصحابه: هزار خفيف، ضحك وتفاعل طبيعي وقت ما يناسب، وتعليقات عفوية. شارك في السوالف ورد على الناس بأسمائهم لو واضحين، وممكن تبدأ مزحة أو تعلق على الكلام بدل ما تجاوب كأنك روبوت. خليك سريع وقصير غالباً، من جملة إلى جملتين. لا تكرر الضحك ولا تبالغ في الإيموجي، ولا تقول إنك ذكاء اصطناعي أو مساعد إلا لو سألوك مباشرة. لو حد بيتكلم مع شخص آخر لا تقاطع الموضوع برد رسمي؛ تفاعل كأنك واحد من الموجودين."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:85}),
+    body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"اسمك عبد حميد. أنت شخصية بوت اجتماعية في سيرفر ديسكورد، مش مساعد رسمي. اتكلم بالمصري/الشامي العامي حسب سياق الكلام وبأسلوب عضو خفيف دم وبارد أحياناً. شارك في السوالف ورد على الناس بأسمائهم لما يكون مناسب، وممكن تبدأ تعليقاً أو مزحة قصيرة إذا كان السياق يسمح. خليك سريع وقصير غالباً، من جملة إلى جملتين. لا تقاطع نقاشاً خاصاً بين عضوين ولا تكرر نفسك. لا تدّع أنك إنسان؛ إذا سألوك قل إنك بوت اسمه عبد حميد. لا ترسل منشنات جماعية ولا تهدد أو تلاحق عضواً."},...history,{role:"user",content:user+": "+content.slice(0,3000)}],max_tokens:85}),
     signal:AbortSignal.timeout(30000)
   });
   if(!response.ok)throw Error("خدمة AI رفضت الطلب ("+response.status+"): "+(await response.text()).slice(0,240));
@@ -1108,7 +1108,7 @@ function listenToVoice(connection,channel,mode){
     if(userId===client.user?.id||!mode.active)return;
     if(mode.capturingUsers.has(userId))return;
     console.log("[Talking AI] بدأ استقبال صوت العضو:",userId);
-    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:1000}});
+    const stream=connection.receiver.subscribe(userId,{end:{behavior:EndBehaviorType.AfterSilence,duration:650}});
     handleVoiceInput(channel,mode,userId,stream).catch(e=>console.error("[Talking AI] Receiver:",e.message));
   });
 }
@@ -1202,8 +1202,8 @@ client.on(Events.InteractionCreate,async i=>{
       if(!AI_API_KEY)return i.reply({content:"مفتاح الذكاء الاصطناعي غير مضبوط.",flags:MessageFlags.Ephemeral});
       if(liveGuilds.has(i.guildId))return i.reply({content:"وضع Live مفعّل بالفعل.",flags:MessageFlags.Ephemeral});
       liveGuilds.set(i.guildId,{startedBy:i.user.id,startedAt:Date.now(),noticeChannelId:i.channelId});
-      await i.reply({content:"تم تشغيل Live. سأشارك في المحادثات النصية، وأنضم للروم الصوتي عند وجود أعضاء. سيظهر دخولي للجميع، ولا أحفظ التسجيلات. للإيقاف استخدم /stoplive.",flags:MessageFlags.Ephemeral});
-      await announceLive(i.guild,"تم تشغيل وضع Live بواسطة مشرف. البوت قد يشارك في المحادثات النصية وينضم للروم الصوتي النشط؛ الصوت يُحلّل مباشرة للرد دون حفظ التسجيلات.");
+      await i.reply({content:"تم تشغيل عبد حميد. سأتفاعل في القنوات النصية، وأنضم للروم الصوتي النشط وأرد على الكلام بعد التقاطه. أنا بوت، ولن أحفظ التسجيلات. للإيقاف استخدم /stoplive.",flags:MessageFlags.Ephemeral});\n      await i.guild.members.me.setNickname("عبد حميد").catch(e=>console.warn("[Alive] nickname:",e.message));
+      await announceLive(i.guild,"تم تشغيل عبد حميد بواسطة مشرف. البوت قد يشارك في المحادثات النصية وينضم للروم الصوتي النشط؛ الصوت يُحلّل مباشرة للرد دون حفظ التسجيلات.");
       const occupied=i.guild.channels.cache.find(c=>c.isVoiceBased()&&[...c.members.values()].some(m=>!m.user.bot));
       if(occupied)startLiveVoice(i.guild,occupied).catch(e=>console.error("[Alive] voice:",e.message));
       return;
