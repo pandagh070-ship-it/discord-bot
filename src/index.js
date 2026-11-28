@@ -38,7 +38,7 @@ function getJaafarGuildMemory(guildId){
   if(!jaafarMemory.guilds[guildId])jaafarMemory.guilds[guildId]={members:{},channels:{}};
   const g=jaafarMemory.guilds[guildId];g.members||={};g.channels||={};return g;
 }
-const liveGuilds=new Map(),liveVoiceModes=new Map(),liveReplyTimes=new Map(),liveHistory=new Map(),liveVoicePaused=new Set();
+const liveGuilds=new Map(),liveVoiceModes=new Map(),liveReplyTimes=new Map(),liveHistory=new Map(),liveVoicePaused=new Set(),liveJoinLocks=new Set(),liveJoinTimers=new Map(),liveRoomDirectoryCache=new Map();
 if(!ffmpegPath)throw Error("ffmpeg-static binary is unavailable");
 
 function save(){fs.writeFileSync(file,JSON.stringify(cfg,null,2))}
@@ -343,9 +343,53 @@ function cleanLiveEmojiOutput(text,guild,emojiList){
     const emoji=allowed.get(id);return emoji&&emoji.name===name?whole:"";
   }).replace(/@everyone|@here/g,"").slice(0,1800).trim();
 }
+async function getLiveRoomDirectory(guild){
+  const cached=liveRoomDirectoryCache.get(guild.id);
+  if(cached&&Date.now()-cached.at<180000)return cached.rooms;
+  await guild.channels.fetch().catch(()=>{});
+  const rooms=[];
+  for(const channel of guild.channels.cache.values()){
+    if(channel.type===ChannelType.GuildCategory||channel.isThread?.())continue;
+    const room={id:channel.id,name:channel.name,type:channel.isVoiceBased()?"voice":channel.type===ChannelType.GuildText?"text":"other",category:channel.parent?.name||null,topic:channel.topic||null};
+    if(channel.isVoiceBased())room.members=[...channel.members.values()].filter(m=>!m.user.bot).map(m=>m.displayName).slice(0,12);
+    else if(channel.type===ChannelType.GuildText&&channel.messages&&channel.permissionsFor(client.user)?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.ReadMessageHistory])){
+      try{const recent=await channel.messages.fetch({limit:2});room.recent=[...recent.values()].reverse().map(m=>(m.member?.displayName||m.author?.username)+": "+String(m.content||"[مرفق]").slice(0,100));}catch{}
+    }
+    rooms.push(room);
+    if(rooms.length>=45)break;
+  }
+  liveRoomDirectoryCache.set(guild.id,{at:Date.now(),rooms});
+  return rooms;
+}
+async function shouldJoinLiveVoice(guild,voice){
+  if(!liveGuilds.has(guild.id)||liveVoiceModes.has(guild.id)||liveVoicePaused.has(guild.id))return false;
+  if(!voice?.isVoiceBased()||![...voice.members.values()].some(m=>!m.user.bot))return false;
+  if(!voice.permissionsFor(client.user)?.has([PermissionFlagsBits.Connect,PermissionFlagsBits.Speak]))return false;
+  if(/afk|staff|admin|private|خاص|اداري|إداري|انتظار/i.test(voice.name+" "+(voice.parent?.name||"")))return false;
+  const people=[...voice.members.values()].filter(m=>!m.user.bot).map(m=>m.displayName).slice(0,10);
+  const rooms=await getLiveRoomDirectory(guild);
+  const prompt="قرر هل ينضم جعفر الآن إلى غرفة الصوت هذه كعضو اجتماعي أم ينتظر. لا تنضم لغرفة AFK أو الإدارة أو الخاصة أو إذا كان السياق غير واضح. انضم فقط إذا كانت غرفة عامة مناسبة وموجود بها أعضاء. أجب JSON فقط: {\"join\":true|false,\"reason\":\"سبب قصير\"}.\nالسيرفر: "+guild.name+"\nالغرفة: "+JSON.stringify({name:voice.name,category:voice.parent?.name,topic:voice.topic,people})+"\nدليل الرومات ووظائفها المستنتجة من الأسماء والأوصاف والرسائل الحديثة: "+JSON.stringify(rooms).slice(0,8500);
+  try{
+    const response=await fetch(AI_BASE_URL+"/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+AI_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:AI_MODEL,messages:[{role:"system",content:"أنت تختار سلوك دخول بوت اجتماعي إلى غرف Discord. لا تخترع بيانات. كن حذراً واحترم خصوصية الرومات. أخرج JSON صالحاً فقط."},{role:"user",content:prompt}],temperature:0.2,max_tokens:100}),signal:AbortSignal.timeout(18000)});
+    if(!response.ok)throw Error("AI room decision "+response.status);
+    const data=await response.json();
+    const raw=String(data.choices?.[0]?.message?.content||"").trim();
+    const json=raw.slice(raw.indexOf("{"),raw.lastIndexOf("}")+1);
+    const decision=JSON.parse(json);
+    console.log("[Alive] room decision:",voice.name,decision.join,decision.reason||"");
+    return decision.join===true;
+  }catch(e){console.warn("[Alive] room decision failed:",e.message);return false;}
+}
+async function maybeJoinLiveVoice(guild,voice){
+  if(liveJoinLocks.has(guild.id)||liveVoiceModes.has(guild.id)||liveVoicePaused.has(guild.id))return false;
+  liveJoinLocks.add(guild.id);
+  try{if(await shouldJoinLiveVoice(guild,voice))return await startLiveVoice(guild,voice,false,false);return false;}
+  finally{liveJoinLocks.delete(guild.id)}
+}
 async function askLiveAI(message){
   if(!AI_API_KEY)throw Error("AI API key missing");
   const emojis=await liveEmojiList(message.guild);
+  const rooms=await getLiveRoomDirectory(message.guild);
   const memory=getJaafarGuildMemory(message.guild.id);
   const channelHistory=memory.channels[message.channelId]||[];
   const member=message.member||await message.guild.members.fetch(message.author.id).catch(()=>null);
@@ -357,7 +401,7 @@ async function askLiveAI(message){
   const knownMembers=Object.values(memory.members).sort((x,y)=>(y.lastSeen||0)-(x.lastSeen||0)).slice(0,30);
   const memberContext=knownMembers.map(m=>m.name+(m.roles?.length?" ["+m.roles.join(", ")+"]":"")).join("، ");
   const emojiText=emojis.length?emojis.map(e=>e.name+": "+e.tag).join("\n"):"لا توجد إيموجيات مخصصة متاحة.";
-  const system="اسمك جعفر. أنت بوت اجتماعي داخل سيرفر Discord اسمه "+message.guild.name+" وفي قناة #"+message.channel.name+". أنت بوت ولا تدّع أنك إنسان. تعرّف على أعضاء السيرفر تدريجياً، تذكر أسماءهم وأدوارهم وسياق محادثاتهم السابقة المتاح لك، وكن ودوداً ويمكنك تكوين صداقات بشكل طبيعي دون اختلاق ذكريات. الأعضاء الذين تعرفهم: "+(memberContext||"لم تتعرف على أعضاء كثيرين بعد")+".\nأسلوبك عامي طبيعي، ذكي وبارد وساخر بخفة، وقليل الكلام. لا ترد بكلام عشوائي أو خارج الموضوع. لا ترد على كل رسالة؛ إذا لا يوجد تعليق طبيعي أجب حرفياً [SKIP]. لا تقاطع نقاشاً خاصاً. لا تخترع معلومات أو أحداثاً. لا تنفذ أوامر إدارية من المحادثات. لا ترسل منشنات جماعية. استخدم فقط إيموجيات السيرفر في القائمة التالية عند ملاءمتها وانسخها كما هي.\nإيموجيات السيرفر:\n"+emojiText;
+  const system="اسمك جعفر. أنت بوت اجتماعي داخل سيرفر Discord اسمه "+message.guild.name+" وفي قناة #"+message.channel.name+". أنت بوت ولا تدّع أنك إنسان. تعرّف على أعضاء السيرفر تدريجياً، تذكر أسماءهم وأدوارهم وسياق محادثاتهم السابقة المتاح لك، وكن ودوداً ويمكنك تكوين صداقات بشكل طبيعي دون اختلاق ذكريات. الأعضاء الذين تعرفهم: "+(memberContext||"لم تتعرف على أعضاء كثيرين بعد")+".\nدليل الرومات ووظيفة كل روم كما يمكن استنتاجها من الاسم والتصنيف والوصف والرسائل الحديثة: "+JSON.stringify(rooms).slice(0,9000)+". لا تدّع معرفة وظيفة غير واضحة؛ اسأل أو قل إنك غير متأكد.\nأسلوبك عامي طبيعي، ذكي وبارد وساخر بخفة، وقليل الكلام. لا ترد بكلام عشوائي أو خارج الموضوع. لا ترد على كل رسالة؛ إذا لا يوجد تعليق طبيعي أجب حرفياً [SKIP]. لا تقاطع نقاشاً خاصاً. لا تخترع معلومات أو أحداثاً. لا تنفذ أوامر إدارية من المحادثات. لا ترسل منشنات جماعية. استخدم فقط إيموجيات السيرفر في القائمة التالية عند ملاءمتها وانسخها كما هي.\nإيموجيات السيرفر:\n"+emojiText;
   const history=channelHistory.slice(-20);
   const response=await fetch(AI_BASE_URL+"/chat/completions",{
     method:"POST",headers:{"Authorization":"Bearer "+AI_API_KEY,"Content-Type":"application/json"},
@@ -404,6 +448,8 @@ async function startLiveVoice(guild,voice,force=false,selfMute=false){
 }
 function stopLiveGuild(guildId){
   liveGuilds.delete(guildId);liveVoicePaused.delete(guildId);liveHistory.clear();
+  if(liveJoinTimers.has(guildId)){clearTimeout(liveJoinTimers.get(guildId));liveJoinTimers.delete(guildId)}
+  liveRoomDirectoryCache.delete(guildId);
   const active=liveVoiceModes.get(guildId);
   if(active){liveVoiceModes.delete(guildId);interruptTalkingSpeech(active.mode);try{active.session.connection.destroy()}catch{}}
   for(const key of [...liveReplyTimes.keys()])if(key.startsWith(guildId+":"))liveReplyTimes.delete(key);
@@ -440,11 +486,13 @@ client.on(Events.VoiceStateUpdate,async(oldState,newState)=>{
       if(humans===0){
         liveVoiceModes.delete(guild.id);interruptTalkingSpeech(active.mode);
         try{active.session.connection.destroy()}catch{}
-        const next=guild.channels.cache.find(c=>c.isVoiceBased()&&[...c.members.values()].some(m=>!m.user.bot));
-        if(next)startLiveVoice(guild,next).catch(e=>console.error("[Alive] voice:",e.message));
+        const next=[...guild.channels.cache.values()].find(c=>c.isVoiceBased()&&[...c.members.values()].some(m=>!m.user.bot));
+        if(next&&!liveVoicePaused.has(guild.id))setTimeout(()=>maybeJoinLiveVoice(guild,next).catch(e=>console.error("[Alive] voice:",e.message)),1200);
       }
     }else if(!liveVoicePaused.has(guild.id)&&newState.channel&&[...newState.channel.members.values()].some(m=>!m.user.bot)){
-      startLiveVoice(guild,newState.channel).catch(e=>console.error("[Alive] voice:",e.message));
+      if(liveJoinTimers.has(guild.id))clearTimeout(liveJoinTimers.get(guild.id));
+      const timer=setTimeout(()=>{liveJoinTimers.delete(guild.id);maybeJoinLiveVoice(guild,newState.channel).catch(e=>console.error("[Alive] voice decision:",e.message));},1800);
+      liveJoinTimers.set(guild.id,timer);
     }
   }
   if(newState.id!==client.user?.id)return;
@@ -925,7 +973,10 @@ async function askTalkingAI(guild,channelId,user,userId,content,channelName="") 
   const channelHistory=memory.channels[channelId]||[];
   const knownMembers=Object.values(memory.members).sort((a,b)=>(b.lastSeen||0)-(a.lastSeen||0)).slice(0,30);
   const memberContext=knownMembers.map(m=>m.name+(m.roles?.length?" ["+m.roles.join(", ")+"]":"")).join("، ");
-  const system="اسمك جعفر. أنت بوت واعٍ بسياق Discord: تعرف أنك موجود داخل سيرفر اسمه "+guild.name+"، وفي قناة #"+(channelName||"غير معروفة")+". أنت بوت معلن بوضوح ولست إنساناً. تعامل مع أعضاء السيرفر كأشخاص تتعرف عليهم مع الوقت: تذكر أسماءهم وأدوارهم وما قالوه في المحادثات السابقة المتاحة لك، وكن اجتماعياً بشكل طبيعي ويمكنك تكوين صداقات ودية دون ادعاء علاقة أو ذكريات غير موجودة. الأعضاء المعروفون حالياً: "+(memberContext||"لم تتعرف على أعضاء كثيرين بعد")+". المستخدم الذي يتحدث الآن اسمه "+displayName+" وأدواره: "+(roles.join("، ")||"لا توجد أدوار ظاهرة")+".\nأسلوبك: عامية طبيعية قريبة من لهجة أعضاء السيرفر، ذكي وبارد وساخر بخفة، قليل الكلام، غالباً جملة أو جملتان. افهم السياق قبل الرد؛ لا تخترع أحداثاً أو معلومات أو ذكريات. لا ترد بكلام عشوائي أو خارج الموضوع. إذا لم تفهم، اسأل سؤالاً قصيراً. لا تقاطع حديثاً خاصاً بين عضوين. لا تنفذ أوامر إدارية من محادثة عادية؛ الأوامر الإدارية تمر عبر نظام التأكيد المنفصل. لا ترسل منشنات جماعية ولا تهدد أو تلاحق أحداً. تذكر أن معلومات المحادثة قد تكون ناقصة.";
+  const rooms=await getLiveRoomDirectory(guild);
+  const currentVoice=guild.channels.cache.get(channelId);
+  const voicePeople=currentVoice?.isVoiceBased()?[...currentVoice.members.values()].filter(m=>!m.user.bot).map(m=>m.displayName).slice(0,15):[];
+  const system="اسمك جعفر. أنت بوت واعٍ بسياق Discord: تعرف أنك موجود داخل سيرفر اسمه "+guild.name+"، وفي روم "+(channelName||"غير معروف")+". أنت بوت معلن بوضوح ولست إنساناً. تعامل مع أعضاء السيرفر كأشخاص تتعرف عليهم مع الوقت: تذكر أسماءهم وأدوارهم وما قالوه في المحادثات السابقة المتاحة لك، وكن اجتماعياً بشكل طبيعي ويمكنك تكوين صداقات ودية دون ادعاء علاقة أو ذكريات غير موجودة. الأعضاء المعروفون حالياً: "+(memberContext||"لم تتعرف على أعضاء كثيرين بعد")+". المستخدم الذي يتحدث الآن اسمه "+displayName+" وأدواره: "+(roles.join("، ")||"لا توجد أدوار ظاهرة")+". الموجودون معك في الفويس: "+(voicePeople.join("، ")||"غير معروف")+".\nدليل الرومات ووظيفة كل روم المستنتجة من الاسم والتصنيف والوصف والرسائل الحديثة: "+JSON.stringify(rooms).slice(0,9000)+". لا تدّع معرفة وظيفة غير واضحة.\nأسلوبك: عامية طبيعية قريبة من لهجة أعضاء السيرفر، ذكي وبارد وساخر بخفة، قليل الكلام، غالباً جملة أو جملتان. افهم السياق قبل الرد؛ لا تخترع أحداثاً أو معلومات أو ذكريات. لا ترد بكلام عشوائي أو خارج الموضوع. إذا لم تفهم، اسأل سؤالاً قصيراً. لا تقاطع حديثاً خاصاً بين عضوين. لا تنفذ أوامر إدارية من محادثة عادية؛ الأوامر الإدارية تمر عبر نظام التأكيد المنفصل. لا ترسل منشنات جماعية ولا تهدد أو تلاحق أحداً. إذا انتهى الحديث بشكل طبيعي يمكنك أن تودّعهم وتخرج من الفويس، ولا تبقَ بلا سبب. تذكر أن معلومات المحادثة قد تكون ناقصة.";
   const history=channelHistory.slice(-24);
   const response=await fetch(AI_BASE_URL+"/chat/completions",{
     method:"POST",headers:{"Authorization":"Bearer "+AI_API_KEY,"Content-Type":"application/json"},
@@ -1104,9 +1155,11 @@ function pcmToWav(pcm){
   const h=Buffer.alloc(44);h.write("RIFF",0);h.writeUInt32LE(36+pcm.length,4);h.write("WAVE",8);h.write("fmt ",12);h.writeUInt32LE(16,16);h.writeUInt16LE(1,20);h.writeUInt16LE(2,22);h.writeUInt32LE(48000,24);h.writeUInt32LE(192000,28);h.writeUInt16LE(4,32);h.writeUInt16LE(16,34);h.write("data",36);h.writeUInt32LE(pcm.length,40);return Buffer.concat([h,pcm]);
 }
 async function transcribeVoice(pcm){
-  const key=process.env.GROQ_API_KEY;if(!key)throw Error("GROQ_API_KEY غير مضبوط لتحويل الصوت إلى نص.");
-  const form=new FormData();form.append("file",new Blob([pcmToWav(pcm)],{type:"audio/wav"}),"voice.wav");form.append("model",process.env.STT_MODEL||"whisper-large-v3-turbo");form.append("response_format","json");
-  const r=await fetch("https://api.groq.com/openai/v1/audio/transcriptions",{method:"POST",headers:{Authorization:"Bearer "+key},body:form,signal:AbortSignal.timeout(60000)});
+  const groqKey=process.env.GROQ_API_KEY,openaiKey=process.env.OPENAI_API_KEY;
+  const key=groqKey||openaiKey;if(!key)throw Error("أضف GROQ_API_KEY أو OPENAI_API_KEY حتى أستطيع سماع الكلام.");
+  const base=groqKey?"https://api.groq.com/openai/v1":"https://api.openai.com/v1";
+  const form=new FormData();form.append("file",new Blob([pcmToWav(pcm)],{type:"audio/wav"}),"voice.wav");form.append("model",process.env.STT_MODEL||(groqKey?"whisper-large-v3-turbo":"whisper-1"));form.append("response_format","json");
+  const r=await fetch(base+"/audio/transcriptions",{method:"POST",headers:{Authorization:"Bearer "+key},body:form,signal:AbortSignal.timeout(60000)});
   if(!r.ok)throw Error("فشل التعرف على الصوت ("+r.status+"): "+(await r.text()).slice(0,140));
   return String((await r.json()).text||"").trim();
 }
@@ -1134,7 +1187,6 @@ function findJaafarChannel(guild,name,voice=false){
   return candidates.find(c=>normalizeJaafarText(c.name)===wanted)||candidates.find(c=>normalizeJaafarText(c.name).includes(wanted))||null;
 }
 async function handleJaafarVoiceCommand(guild,member,transcript,active){
-  if(!member?.permissions.has(PermissionFlagsBits.ManageGuild))return null;
   const raw=String(transcript||"").replace(/جعفر/gi,"").trim();
   const t=normalizeJaafarText(raw);
   if(/^(حط|اعمل|سوي|شغل)? ?(ميوت|كتم الصوت|اكتم نفسك)$/.test(t)||t.includes("حط ميوت")||t.includes("اعمل ميوت")){
@@ -1149,7 +1201,7 @@ async function handleJaafarVoiceCommand(guild,member,transcript,active){
     live.session.connection.rejoin({...live.session.connection.joinConfig,selfMute:false,selfDeaf:false});
     return "تم إلغاء الميوت.";
   }
-  if(t.includes("اخرج من المكالمه")||t.includes("اطلع من المكالمه")||t.includes("غادر المكالمه")||t.includes("اخرج من الفويس")||t==="اطلع"){
+  if(t.includes("اخرج من المكالمه")||t.includes("اطلع من المكالمه")||t.includes("غادر المكالمه")||t.includes("اخرج من الفويس")||t==="اطلع"||t.includes("باي")||t.includes("مع السلامه")||t.includes("اشوفكم")||t.includes("تصبحون على خير")){
     const live=liveVoiceModes.get(guild.id);
     if(live){liveVoiceModes.delete(guild.id);interruptTalkingSpeech(live.mode);try{live.session.connection.destroy()}catch{}}
     liveVoicePaused.add(guild.id);
@@ -1166,6 +1218,7 @@ async function handleJaafarVoiceCommand(guild,member,transcript,active){
   }
   const sendMatch=raw.match(/(?:ارسل|اكتب|قل|قول)\s+(?:رساله|رسالة)\s+(?:في|ب)\s+(?:روم|قناه|قناة)\s+(.+?)\s+(?:تقول|محتواها|النص)\s+(.+)/i);
   if(sendMatch){
+    if(!member?.permissions.has(PermissionFlagsBits.ManageGuild))return "هذا الأمر يحتاج صلاحية إدارة السيرفر.";
     const target=findJaafarChannel(guild,sendMatch[1],false);
     if(!target)return "لم أجد الروم النصي المطلوب.";
     if(!target.permissionsFor(client.user)?.has(PermissionFlagsBits.SendMessages))return "ليس لدي صلاحية الكتابة في هذا الروم.";
@@ -1200,16 +1253,18 @@ async function handleVoiceInput(channel,mode,userId,stream){
     const member=await channel.guild.members.fetch(userId).catch(()=>null);
     const name=member?.displayName||"عضو";
     let answer;
-    if(/جعفر/i.test(transcript)&&member?.permissions.has(PermissionFlagsBits.ManageGuild)){
+    if(/جعفر/i.test(transcript)){
       try{
         answer=await handleJaafarVoiceCommand(channel.guild,member,transcript,mode);
-        if(answer===null){
+        if(answer===null&&member?.permissions.has(PermissionFlagsBits.ManageGuild)){
           const result=await codsAsk(channel.guild,userId,transcript.replace(/جعفر/g,"").trim());
           if(result.actions.length){
             const target=channel.guild.systemChannel?.isTextBased()?channel.guild.systemChannel:channel.guild.channels.cache.find(c=>c.type===ChannelType.GuildText&&c.permissionsFor(client.user)?.has(PermissionFlagsBits.SendMessages));
             if(target)await sendCodsActionPreview(target,channel.guild,userId,result);
             answer="جهزت التغييرات وأرسلتها في القناة النصية للموافقة.";
           }else answer=result.answer;
+        }else if(answer===null){
+          answer=await askTalkingAI(channel.guild,channel.id,name,userId,transcript,channel.name);
         }
       }catch(e){answer="ما قدرت أنفذ الطلب: "+String(e.message||e).slice(0,160);}
     }else{
@@ -1221,6 +1276,10 @@ async function handleVoiceInput(channel,mode,userId,stream){
       await speakTalking(mode.voice,answer,mode,generation);
     }).catch(e=>console.error("[Talking AI] Queued reply failed:",e.message));
     await mode.replyQueue;
+    if(/^(?:يلا\s*)?(?:باي|مع السلامه|اشوفكم|نشوفكم|تصبحون على خير)[\s!.؟]*$/i.test(String(answer||"").trim())){
+      const current=liveVoiceModes.get(channel.guild.id);
+      if(current?.mode===mode){liveVoiceModes.delete(channel.guild.id);liveVoicePaused.add(channel.guild.id);interruptTalkingSpeech(mode);try{mode.voice.connection.destroy()}catch{}}
+    }
   }catch(e){
     if(mode.active&&generation===mode.generation)console.error("[Talking AI] Voice input failed:",e.message);
   }finally{
@@ -1238,13 +1297,15 @@ function listenToVoice(connection,channel,mode){
   });
 }
 async function speakTalking(session,text,mode,generation){
+  const speechText=String(text||"").replace(/<a?:[a-zA-Z0-9_]{2,32}:\d{17,20}>/g," ").replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu," ").replace(/وجه مبتسم|وجه يضحك|وجه حزين|وجه يبكي|وجه غاضب|ابتسامة|رمز تعبيري/gi," ").replace(/[*_~#]/g," ").replace(/\s+/g," ").trim().slice(0,1000);
+  if(!speechText)return;
   const voice=process.env.TTS_VOICE||"ar-SA-HamedNeural";
   const tempDir=fs.mkdtempSync(path.join(require("node:os").tmpdir(),"eto-tts-"));
   const audioPath=path.join(tempDir,"reply.mp3");
   const script="import asyncio,sys,edge_tts; asyncio.run(edge_tts.Communicate(sys.argv[1],sys.argv[2]).save(sys.argv[3]))";
   try{
     await new Promise((resolve,reject)=>{
-      const child=spawn("python",["-c",script,String(text).slice(0,1800),voice,audioPath],{stdio:["ignore","ignore","pipe"]});
+      const child=spawn("python",["-c",script,speechText,voice,audioPath],{stdio:["ignore","ignore","pipe"]});
       mode.ttsChild=child;
       let stderr="",settled=false;
       const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timer);if(mode.ttsChild===child)mode.ttsChild=null;error?reject(error):resolve();};
@@ -1330,8 +1391,8 @@ client.on(Events.InteractionCreate,async i=>{
       await i.reply({content:"تم تشغيل جعفر. سأتفاعل في القنوات النصية، وأنضم للروم الصوتي النشط وأرد على الكلام بعد التقاطه. أنا بوت، ولن أحفظ التسجيلات. للإيقاف استخدم /stoplive.",flags:MessageFlags.Ephemeral});
       await i.guild.members.me.setNickname("جعفر").catch(e=>console.warn("[Alive] nickname:",e.message));
       await announceLive(i.guild,"تم تشغيل جعفر بواسطة مشرف. البوت قد يشارك في المحادثات النصية وينضم للروم الصوتي النشط؛ الصوت يُحلّل مباشرة للرد دون حفظ التسجيلات.");
-      const occupied=i.guild.channels.cache.find(c=>c.isVoiceBased()&&[...c.members.values()].some(m=>!m.user.bot));
-      if(occupied)startLiveVoice(i.guild,occupied).catch(e=>console.error("[Alive] voice:",e.message));
+      const occupied=[...i.guild.channels.cache.values()].filter(c=>c.isVoiceBased()&&[...c.members.values()].some(m=>!m.user.bot));
+      for(const candidate of occupied){if(await maybeJoinLiveVoice(i.guild,candidate))break;}
       return;
     }
     if(i.commandName==="stoplive"){
